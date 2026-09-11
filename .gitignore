@@ -1,0 +1,16 @@
+.env
+myenv/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.db
+*.sqlite
+*.sqlite3
+.pytest_cache/
+.vscode/
+.idea/
+*.log
+.DS_Store
+data/vector_db/
+data/traces/

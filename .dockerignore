@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.git/
+.gitignore
+*.md
+!requirements.txt
+data/vector_db/*.index
+data/vector_db/*.pkl
+nexus_auth.db
+*.log
+.DS_Store
