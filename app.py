@@ -1,4 +1,4 @@
-
+﻿
 #!/usr/bin/env python3
 """
 PolicyGuard AI - Enterprise HR RAG Platform
@@ -727,7 +727,6 @@ def _init_database() -> bool:
         return False
 
 
-_DB_READY = _init_database()
 
 # =============================================================================
 # PASSWORD / AUTHENTICATION
@@ -751,6 +750,7 @@ def _hash_password(password: str) -> Optional[bytes]:
         logger.exception("Password hashing failed")
         return None
 
+_DB_READY = _init_database()
 
 def _verify_password(
     stored_hash: Any,
