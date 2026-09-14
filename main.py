@@ -164,12 +164,12 @@ logger.info(f"📂 Initializing Vector Store at: {DB_PATH_STR}")
 vector_store = HybridVectorStore(db_path=DB_PATH_OBJ)
 
 if vector_store.load():
-    logger.info(f"✅ Successfully loaded Vector DB from {DB_PATH_STR}")
+    logger.info(f"OK: Successfully loaded Vector DB from {DB_PATH_STR}")
     logger.info(f"   Chunks loaded: {len(vector_store.chunks)}")
     if hasattr(vector_store, 'faiss_index'):
         logger.info(f"   Index size: {vector_store.faiss_index.ntotal}")
 else:
-    logger.warning(f"⚠️ No existing vector DB found at {DB_PATH_STR}. Ready for ingestion.")
+    logger.warning(f"WARN: No existing vector DB found at {DB_PATH_STR}. Ready for ingestion.")
 
 # ==========================================
 # 6. PYDANTIC MODELS
@@ -238,7 +238,7 @@ async def upload_document(
         vector_store.add_chunks(chunks, embeddings)
         vector_store.save()
         
-        logger.info(f"✅ Indexed {len(chunks)} chunks from {file.filename}")
+        logger.info(f"OK: Indexed {len(chunks)} chunks from {file.filename}")
         
         return UploadResponse(
             status="success",

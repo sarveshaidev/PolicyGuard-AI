@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension for hybrid search
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: policyguard
+      POSTGRES_PASSWORD: policyguard123
+      POSTGRES_DB: policyguard_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U policyguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis for caching, session management, and rate limiting
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Neo4j for Knowledge Graph + GraphRAG
+  neo4j:
+    image: neo4j:5.15
+    environment:
+      NEO4J_AUTH: neo4j/policyguard123
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"   # Neo4j Browser
+      - "7687:7687"   # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Main Application
+  policyguard-ai:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      # Database connections
+      - DATABASE_URL=postgresql://policyguard:policyguard123@postgres:5432/policyguard_db
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=policyguard123
+      # API Keys
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # App settings
+      - PYTHONUNBUFFERED=1
+      - DEBUG=${DEBUG:-false}
+    volumes:
+      - ./data:/app/data
+      - ./nexus_auth.db:/app/nexus_auth.db
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:

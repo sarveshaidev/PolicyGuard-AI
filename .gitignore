@@ -1,16 +1,47 @@
+# Environment / secrets
 .env
+.env.*
+!.env.example
+
+# Python environments
 myenv/
 venv/
 .venv/
+
+# Python cache / compiled files
 __pycache__/
+**/__pycache__/
 *.py[cod]
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local databases
 *.db
 *.sqlite
 *.sqlite3
-.pytest_cache/
-.vscode/
-.idea/
-*.log
-.DS_Store
+*.db-shm
+*.db-wal
+
+# Local generated data
 data/vector_db/
 data/traces/
+data/cache/
+data/uploads/
+
+# Local logs
+*.log
+logs/
+.cache/
+# Local backups
+backups/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

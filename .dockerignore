@@ -1,14 +1,68 @@
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.env
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+myenv/
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Git
 .git/
 .gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Documentation
 *.md
 !requirements.txt
+README.md
+
+# Data (keep structure, exclude large files)
 data/vector_db/*.index
 data/vector_db/*.pkl
+data/documents/*.pdf
+data/traces/*.jsonl
+data/ground_truth.json
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
 nexus_auth.db
+
+# Logs
 *.log
+logs/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker (optional: include if you want to rebuild from container)
+# Dockerfile
+# docker-compose.yml
+# .dockerignore
