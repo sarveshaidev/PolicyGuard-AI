@@ -851,18 +851,25 @@ def security_guard_node(
 
         is_valid, security_message, validated_query = security_guard.validate_query(
             query,
-            user_id=str(
-                (state.get("user_context") or {}).get("user_id", "graph")
-            ),
-            role=str(
-                (state.get("user_context") or {}).get("user_role", "viewer")
-            ),
-            organization_id=str(
-                (state.get("user_context") or {}).get(
-                    "organization_id",
-                    "default",
-                )
-            ),
+            username=str(
+            (state.get("user_context") or {}).get("username")
+            or (state.get("user_context") or {}).get("user_id", "graph")),
+            user_role=str(
+            (state.get("user_context") or {}).get("user_role", "viewer")),
+            ip_address=(state.get("user_context") or {}).get("ip_address"),
+            
+            # user_id=str(
+            #     (state.get("user_context") or {}).get("user_id", "graph")
+            # ),
+            # role=str(
+            #     (state.get("user_context") or {}).get("user_role", "viewer")
+            # ),
+            # organization_id=str(
+            #     (state.get("user_context") or {}).get(
+            #         "organization_id",
+            #         "default",
+            #     )
+            # ),
         )
 
         if not is_valid:
