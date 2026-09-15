@@ -703,10 +703,10 @@ def _init_database() -> bool:
                             conn.execute(
                                 """
                                 INSERT INTO users
-                                    (username, password_hash, role)
-                                VALUES (?, ?, 'admin')
+                                    (username, organization_id, password_hash, role)
+                                VALUES (?, ?, ?, ?)
                                 """,
-                                ("admin", password_hash),
+                                ("admin", _configured_organization_id(), password_hash, "admin"),
                             )
                             logger.warning(
                                 "Created admin account from environment configuration."
