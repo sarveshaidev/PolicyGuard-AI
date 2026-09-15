@@ -2816,7 +2816,7 @@ def _save_talent_search(
                         semantic_score, keyword_score,
                         final_score, rank_position, matched_skills
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         search_id,
