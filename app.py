@@ -918,7 +918,7 @@ def _login_user(
                     failed_login_attempts,
                     last_failed_login
                 FROM users
-                WHERE username = ?
+                WHERE organization_id = ? AND username = ?
                 """,
                 (_current_organization_id(), username),
             ).fetchone()
