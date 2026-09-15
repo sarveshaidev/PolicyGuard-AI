@@ -5,10 +5,11 @@ PolicyGuard AI - Cross-Encoder Re-Ranker
 ========================================
 Production-ready cross-encoder re-ranking with:
 
-- Lazy model loading
-- Automatic CPU/CUDA/MPS device detection
+- Lazy FastEmbed/ONNX model loading
+- Low-memory CPU ONNX inference
 - Thread-safe model initialization/inference
 - Batch scoring
+- SentenceTransformers/PyTorch-free runtime
 - Heuristic fallback when the model is unavailable
 - Score normalization
 - Threshold filtering
@@ -355,77 +356,30 @@ class CrossEncoderReranker:
     # -------------------------------------------------------------------------
 
     def _detect_device(self) -> str:
-        """Detect the best available inference device."""
+        """
+        Resolve the execution device without importing PyTorch.
+
+        FastEmbed's CPU ONNX Runtime path is the supported low-memory
+        production target. Explicit CUDA/MPS requests therefore fall back
+        to CPU rather than importing a heavyweight framework.
+        """
         if self._requested_device:
             requested = self._requested_device
 
-            valid_devices = {
-                "cpu",
-                "cuda",
-                "mps",
-            }
-
-            if requested not in valid_devices:
-                logger.warning(
-                    "Unknown device '%s'; falling back to auto detection",
-                    requested,
-                )
-            else:
-                if requested == "cuda":
-                    try:
-                        import torch
-
-                        if torch.cuda.is_available():
-                            return "cuda"
-
-                        logger.warning(
-                            "CUDA requested but unavailable; using CPU"
-                        )
-                        return "cpu"
-
-                    except ImportError:
-                        logger.warning(
-                            "PyTorch unavailable; using CPU"
-                        )
-                        return "cpu"
-
-                if requested == "mps":
-                    try:
-                        import torch
-
-                        if (
-                            hasattr(torch.backends, "mps")
-                            and torch.backends.mps.is_available()
-                        ):
-                            return "mps"
-
-                        logger.warning(
-                            "MPS requested but unavailable; using CPU"
-                        )
-                        return "cpu"
-
-                    except ImportError:
-                        return "cpu"
-
+            if requested == "cpu":
                 return "cpu"
 
-        try:
-            import torch
+            if requested in {"cuda", "gpu", "mps"}:
+                logger.info(
+                    "Requested device '%s' is not used by the low-memory "
+                    "FastEmbed reranker; selecting CPU",
+                    requested,
+                )
+                return "cpu"
 
-            if torch.cuda.is_available():
-                return "cuda"
-
-            if (
-                hasattr(torch.backends, "mps")
-                and torch.backends.mps.is_available()
-            ):
-                return "mps"
-
-        except ImportError:
-            pass
-        except Exception:
-            logger.exception(
-                "Unexpected error while detecting device"
+            logger.warning(
+                "Unknown device '%s'; using CPU",
+                requested,
             )
 
         return "cpu"
@@ -442,9 +396,28 @@ class CrossEncoderReranker:
     # Model lifecycle
     # -------------------------------------------------------------------------
 
+    def _fastembed_model_name(self) -> str:
+        """
+        Map the legacy SentenceTransformers model identifier to the
+        FastEmbed/ONNX equivalent.
+
+        PolicyGuardAI keeps the historical public configuration value
+        ``cross-encoder/ms-marco-MiniLM-L-6-v2`` for compatibility, while
+        FastEmbed uses the ONNX-converted ``Xenova/...`` identifier.
+        """
+        model_name = self.model_name.strip()
+
+        if model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2":
+            return "Xenova/ms-marco-MiniLM-L-6-v2"
+
+        if model_name == "cross-encoder/ms-marco-MiniLM-L6-v2":
+            return "Xenova/ms-marco-MiniLM-L-6-v2"
+
+        return model_name
+
     def _load_model(self) -> bool:
         """
-        Lazily load the cross-encoder model.
+        Lazily load the FastEmbed ONNX cross-encoder.
 
         Returns:
             True when the model is ready, otherwise False.
@@ -460,41 +433,59 @@ class CrossEncoderReranker:
                 return True
 
             try:
-                from sentence_transformers import CrossEncoder
+                from fastembed.rerank.cross_encoder import TextCrossEncoder
 
             except ImportError:
                 logger.warning(
-                    "sentence-transformers is not installed; "
+                    "fastembed is not installed; "
                     "using heuristic reranking"
                 )
                 self._failed_loads += 1
                 return False
 
+            # FastEmbed's ONNX CPU path is intentionally the production
+            # default for PolicyGuardAI. It avoids importing PyTorch and
+            # SentenceTransformers, which is critical for the 512 MB Render
+            # deployment target.
             device = self._detect_device()
+
+            if device != "cpu":
+                logger.warning(
+                    "FastEmbed reranker currently uses the CPU ONNX path "
+                    "for this low-memory deployment; requested device=%s",
+                    device,
+                )
+                device = "cpu"
+
+            fastembed_model_name = self._fastembed_model_name()
 
             try:
                 logger.info(
-                    "Loading cross-encoder '%s' on %s",
+                    "Loading FastEmbed cross-encoder '%s' "
+                    "(configured=%s) on %s",
+                    fastembed_model_name,
                     self.model_name,
                     device,
                 )
 
-                model = CrossEncoder(
-                    self.model_name,
-                    device=device,
-                    max_length=self.max_length,
+                model = TextCrossEncoder(
+                    model_name=fastembed_model_name,
+                    lazy_load=False,
                 )
 
                 # Warmup is useful but should never prevent the model from
-                # being used if a particular backend doesn't support it.
+                # being used if a particular ONNX backend has an issue.
                 try:
-                    model.predict(
-                        [["test", "test"]],
-                        show_progress_bar=False,
+                    list(
+                        model.rerank(
+                            "test query",
+                            ["test document"],
+                            batch_size=1,
+                        )
                     )
                 except Exception:
                     logger.warning(
-                        "Cross-encoder warmup failed; "
+                        "FastEmbed cross-encoder warmup failed; "
                         "continuing with loaded model",
                         exc_info=True,
                     )
@@ -504,8 +495,10 @@ class CrossEncoderReranker:
                 self._is_loaded = True
 
                 logger.info(
-                    "CrossEncoder loaded successfully on %s",
+                    "FastEmbed CrossEncoder loaded successfully on %s "
+                    "(model=%s)",
                     device,
+                    fastembed_model_name,
                 )
 
                 return True
@@ -514,8 +507,8 @@ class CrossEncoderReranker:
                 self._failed_loads += 1
 
                 logger.exception(
-                    "Failed to load cross-encoder model '%s'",
-                    self.model_name,
+                    "Failed to load FastEmbed cross-encoder model '%s'",
+                    fastembed_model_name,
                 )
 
                 self._model = None
@@ -610,13 +603,24 @@ class CrossEncoderReranker:
                 for chunk in normalized_chunks
             ]
 
-            # Some sentence-transformers versions expose slightly different
-            # predict signatures. Keep the common arguments conservative.
+            # FastEmbed accepts the query and document list directly and
+            # performs ONNX inference without the SentenceTransformers /
+            # PyTorch runtime.
+            documents = [
+                _chunk_content(chunk)
+                for chunk in normalized_chunks
+            ]
+
             with self._inference_lock:
-                scores = self._model.predict(
-                    pairs,
-                    batch_size=self.batch_size,
-                    show_progress_bar=False,
+                # FastEmbed returns a generator/iterable of scores. Materialize
+                # it before converting to a NumPy array; passing the generator
+                # directly to np.asarray produces a 0-D object array.
+                scores = list(
+                    self._model.rerank(
+                        query,
+                        documents,
+                        batch_size=self.batch_size,
+                    )
                 )
 
             scores_array = np.asarray(
@@ -993,6 +997,8 @@ class CrossEncoderReranker:
                     if self._model is not None
                     else None
                 ),
+                "runtime": "fastembed_onnx",
+                "fastembed_model": self._fastembed_model_name(),
                 "shutdown": self._shutdown,
             }
 
@@ -1029,16 +1035,8 @@ class CrossEncoderReranker:
                     exc_info=True,
                 )
 
-            # CUDA cache cleanup is optional.
-            try:
-                import torch
-
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-
-            except (ImportError, Exception):
-                pass
-
+            # FastEmbed/ONNX Runtime owns its inference resources.
+            # No PyTorch/CUDA cleanup is required here.
             logger.info(
                 "CrossEncoder model unloaded"
             )
@@ -1428,4 +1426,3 @@ def test_cross_encoder() -> None:
 
 if __name__ == "__main__":
     test_cross_encoder()
-

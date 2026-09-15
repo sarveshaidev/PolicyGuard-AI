@@ -4,8 +4,8 @@
 PolicyGuard AI - Advanced OCR Engine
 ====================================
 Production OCR engine for scanned documents with:
-- EasyOCR primary engine
-- Tesseract fallback
+- Tesseract OCR engine
+- Lightweight subprocess-based OCR with no ML model resident in process
 - Image preprocessing
 - PDF page-to-image conversion
 - Batch processing
@@ -236,7 +236,7 @@ def _validate_existing_file(
 # =============================================================================
 
 class AdvancedOCR:
-    """Production OCR engine with EasyOCR and Tesseract fallback."""
+    """Production OCR engine using Tesseract without an in-process ML OCR model."""
 
     SUPPORTED_LANGUAGES = [
         "en",
@@ -348,7 +348,6 @@ class AdvancedOCR:
             ),
         )
 
-        self._easyocr_reader = None
         self._tesseract_available = False
         self._tesseract_checked = False
         self._loaded_device: Optional[
@@ -379,115 +378,17 @@ class AdvancedOCR:
     # -------------------------------------------------------------------------
 
     def _detect_device(self) -> str:
-        """Detect the best supported inference device."""
-        if not self.use_gpu:
-            return "cpu"
+        """Return the OCR execution device.
 
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                logger.info(
-                    "CUDA GPU detected for OCR"
-                )
-                return "cuda"
-
-            mps_backend = getattr(
-                torch.backends,
-                "mps",
-                None,
-            )
-
-            if (
-                mps_backend is not None
-                and mps_backend.is_available()
-            ):
-                logger.info(
-                    "Apple MPS detected for OCR"
-                )
-                return "mps"
-
-        except ImportError:
-            logger.debug(
-                "PyTorch not installed; "
-                "using CPU OCR"
-            )
-
-        except Exception as exc:
-            logger.debug(
-                "OCR device detection failed: %s",
-                exc,
-            )
-
-        logger.info(
-            "Using CPU for OCR"
-        )
-
+        Tesseract runs as an external process, so GPU/CUDA/MPS detection is
+        intentionally avoided. Keeping this method preserves the existing
+        status/API contract without importing PyTorch.
+        """
         return "cpu"
 
     # -------------------------------------------------------------------------
     # MODEL LOADING
     # -------------------------------------------------------------------------
-
-    def _load_easyocr(self) -> bool:
-        """Lazy-load EasyOCR in a thread-safe manner."""
-        with self._load_lock:
-            if (
-                self._easyocr_reader is not None
-            ):
-                return True
-
-            try:
-                import easyocr
-
-                device = self._detect_device()
-
-                logger.info(
-                    "Loading EasyOCR: languages=%s, device=%s",
-                    self.languages,
-                    device,
-                )
-
-                # EasyOCR currently expects gpu to be either a bool or
-                # supported device configuration. Passing True enables its
-                # normal GPU selection.
-                use_easyocr_gpu = (
-                    device != "cpu"
-                )
-
-                self._easyocr_reader = (
-                    easyocr.Reader(
-                        self.languages,
-                        gpu=use_easyocr_gpu,
-                        verbose=False,
-                        download_enabled=True,
-                    )
-                )
-
-                self._loaded_device = device
-
-                logger.info(
-                    "EasyOCR loaded successfully"
-                )
-
-                return True
-
-            except ImportError:
-                logger.warning(
-                    "EasyOCR is not installed"
-                )
-
-                self._easyocr_reader = None
-                return False
-
-            except Exception as exc:
-                logger.error(
-                    "EasyOCR initialization failed: %s",
-                    exc,
-                )
-
-                self._easyocr_reader = None
-                return False
 
     def _check_tesseract(self) -> bool:
         """Detect whether Tesseract is usable."""
@@ -535,13 +436,7 @@ class AdvancedOCR:
             return False
 
     def _ensure_engine(self) -> bool:
-        """Ensure at least one OCR backend is available."""
-        if self._easyocr_reader is not None:
-            return True
-
-        if self._load_easyocr():
-            return True
-
+        """Ensure Tesseract is available."""
         return self._check_tesseract()
 
     # -------------------------------------------------------------------------
@@ -672,60 +567,14 @@ class AdvancedOCR:
                 result = None
 
                 # ---------------------------------------------------------
-                # EasyOCR
+                # Tesseract OCR
                 # ---------------------------------------------------------
 
-                if (
-                    self._easyocr_reader
-                    is not None
-                ):
-                    try:
-                        results = (
-                            self._easyocr_reader.readtext(
-                                str(ocr_input),
-                                paragraph=paragraph,
-                                min_size=10,
-                                contrast_ths=0.1,
-                                adjust_contrast=0.5,
-                                text_threshold=0.7,
-                                low_text=0.4,
-                                link_threshold=0.4,
-                                canvas_size=2560,
-                                mag_ratio=1.0,
-                            )
-                        )
-
-                        result = (
-                            self._process_ocr_results(
-                                results,
-                                path.name,
-                            )
-                        )
-
-                        if not result.get(
-                            "text"
-                        ):
-                            result = None
-
-                    except Exception as exc:
-                        logger.warning(
-                            "EasyOCR failed for %s: %s",
-                            path.name,
-                            exc,
-                        )
-
-                # ---------------------------------------------------------
-                # Tesseract fallback
-                # ---------------------------------------------------------
-
-                if result is None:
-                    if self._check_tesseract():
-                        result = (
-                            self._extract_with_tesseract(
-                                image,
-                                path.name,
-                            )
-                        )
+                if self._check_tesseract():
+                    result = self._extract_with_tesseract(
+                        image,
+                        path.name,
+                    )
 
                 if result is None:
                     self._record_failure(
@@ -962,124 +811,6 @@ class AdvancedOCR:
             )
             return None
 
-    def _process_ocr_results(
-        self,
-        results: Optional[
-            List[
-                Tuple[
-                    Any,
-                    str,
-                    float,
-                ]
-            ]
-        ],
-        source_filename: str,
-    ) -> Dict[str, Any]:
-        """Normalize EasyOCR output."""
-        if not results:
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "boxes": [],
-                "text_regions": [],
-                "confidences": [],
-                "image_path": source_filename,
-                "engine": "easyocr",
-                "region_count": 0,
-            }
-
-        filtered = []
-
-        for result in results:
-            if not isinstance(
-                result,
-                (tuple, list),
-            ):
-                continue
-
-            if len(result) < 3:
-                continue
-
-            bbox, text, confidence = (
-                result[0],
-                result[1],
-                result[2],
-            )
-
-            try:
-                confidence = float(
-                    confidence
-                )
-            except (
-                TypeError,
-                ValueError,
-            ):
-                continue
-
-            text = str(
-                text
-            ).strip()
-
-            if (
-                not text
-                or confidence
-                < self.confidence_threshold
-            ):
-                continue
-
-            filtered.append(
-                (
-                    bbox,
-                    text,
-                    confidence,
-                )
-            )
-
-        if not filtered:
-            return {
-                "text": "",
-                "confidence": 0.0,
-                "boxes": [],
-                "text_regions": [],
-                "confidences": [],
-                "image_path": source_filename,
-                "engine": "easyocr",
-                "region_count": 0,
-            }
-
-        texts = [
-            item[1]
-            for item in filtered
-        ]
-
-        confidences = [
-            item[2]
-            for item in filtered
-        ]
-
-        boxes = [
-            item[0]
-            for item in filtered
-        ]
-
-        return {
-            "text": "\n".join(
-                texts
-            ),
-            "confidence": (
-                sum(confidences)
-                / len(confidences)
-            ),
-            "boxes": boxes,
-            "text_regions": texts,
-            "confidences": confidences,
-            "image_path": source_filename,
-            "engine": "easyocr",
-            "region_count": len(
-                filtered
-            ),
-        }
-
     # -------------------------------------------------------------------------
     # PDF OCR
     # -------------------------------------------------------------------------
@@ -1263,7 +994,7 @@ class AdvancedOCR:
             total_pages = 0
 
             # If no page list is supplied, first obtain the page count with
-            # PyMuPDF/PyPDF where available. Otherwise convert in batches.
+            # PDF library/PyPDF where available. Otherwise convert in batches.
             if page_numbers is None:
                 total_pages = (
                     self._get_pdf_page_count(
@@ -1507,26 +1238,7 @@ class AdvancedOCR:
         self,
         pdf_path: Path,
     ) -> int:
-        """Get PDF page count without rendering the document."""
-        try:
-            import fitz
-
-            with fitz.open(
-                str(pdf_path)
-            ) as document:
-                return int(
-                    document.page_count
-                )
-
-        except ImportError:
-            pass
-
-        except Exception as exc:
-            logger.debug(
-                "PyMuPDF page count failed: %s",
-                exc,
-            )
-
+        """Get PDF page count without rendering the document, using pypdf."""
         try:
             from pypdf import (
                 PdfReader,
@@ -1854,20 +1566,13 @@ class AdvancedOCR:
     @property
     def is_available(self) -> bool:
         """Return whether an OCR backend is currently available."""
-        return (
-            self._easyocr_reader is not None
-            or self._tesseract_available
-        )
+        return self._tesseract_available
 
     @property
     def active_engine(self) -> Optional[str]:
         """Return currently loaded primary backend."""
-        if self._easyocr_reader is not None:
-            return "easyocr"
-
         if self._tesseract_available:
             return "tesseract"
-
         return None
 
     def get_stats(
@@ -2037,18 +1742,14 @@ class AdvancedOCR:
     # -------------------------------------------------------------------------
 
     def unload(self) -> None:
-        """Unload EasyOCR model from memory."""
+        """Release OCR resources.
+
+        Tesseract is invoked as an external process and does not keep an
+        in-process model resident, so there is no ML model to unload.
+        """
         with self._load_lock:
-            if self._easyocr_reader is not None:
-                self._easyocr_reader = None
-
             self._loaded_device = None
-
-            # Keep Tesseract availability cached because it is a subprocess
-            # backend and does not hold a model in this object.
-            logger.info(
-                "OCR model unloaded"
-            )
+            logger.info("Tesseract OCR resources released")
 
     def shutdown(self) -> None:
         """Release OCR resources."""
@@ -2262,4 +1963,3 @@ def test_ocr_engine() -> None:
 
 if __name__ == "__main__":
     test_ocr_engine()
-

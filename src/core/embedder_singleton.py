@@ -1,26 +1,24 @@
-
 #!/usr/bin/env python3
 """
-PolicyGuard AI - Embedding Model Singleton
-===========================================
+PolicyGuard AI - Lightweight Embedding Model Singleton
+=======================================================
 
 Centralized, thread-safe embedding model manager.
 
-Features:
-- Single shared SentenceTransformer instance
-- Lazy initialization
-- CUDA / MPS / CPU device detection
-- Automatic CPU fallback
-- Configurable model and Hugging Face cache directory
-- Batch encoding
-- Normalized embeddings for cosine similarity
-- Model warmup
+Production runtime:
+- FastEmbed / ONNX Runtime instead of SentenceTransformers / PyTorch
+- BAAI/bge-small-en-v1.5 by default
+- Same 384-dimensional embedding space
+- Lazy singleton lifecycle
+- Conservative CPU batch sizing
+- Explicit L2 normalization for cosine-compatible vectors
+- Query/document compatibility with the existing public API
+- Configurable Hugging Face/FastEmbed cache directory
 - Performance statistics
 - Safe reset/shutdown
-- Consistent embedding dimension
 
-The embedding model is controlled by config.settings so that the cache,
-vector store, and RAG pipeline use the same embedding model.
+This module intentionally avoids importing PyTorch or sentence-transformers.
+That is important for low-memory deployments such as a 512 MB Render instance.
 """
 
 from __future__ import annotations
@@ -51,60 +49,35 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# DEVICE DETECTION
+# DEVICE / BATCH CONFIGURATION
 # =============================================================================
 
 
 def detect_optimal_device() -> str:
     """
-    Detect the best available device.
+    Resolve the requested FastEmbed execution device without importing PyTorch.
 
-    Priority:
-        CUDA -> MPS -> CPU
+    FastEmbed's normal CPU runtime uses ONNX Runtime. CUDA is only selected
+    when explicitly requested, because CUDA support requires a compatible
+    FastEmbed GPU/ONNX Runtime installation.
 
     Returns:
-        "cuda", "mps", or "cpu"
+        "cuda" or "cpu".
     """
-    try:
-        import torch
+    requested = str(
+        os.getenv("EMBEDDING_DEVICE", "cpu") or "cpu"
+    ).strip().lower()
 
-        if torch.cuda.is_available():
-            logger.info(
-                "CUDA GPU detected for embedding acceleration"
-            )
-            return "cuda"
+    if requested in {"cuda", "gpu"}:
+        logger.info("CUDA embedding requested through EMBEDDING_DEVICE")
+        return "cuda"
 
-    except ImportError:
-        logger.debug(
-            "PyTorch is not installed; CUDA unavailable"
-        )
-    except Exception as exc:
-        logger.warning(
-            "CUDA detection failed: %s",
-            exc,
-        )
+    if requested in {"auto"}:
+        # Keep low-memory deployments deterministic. FastEmbed CPU is the
+        # safe default; GPU can be explicitly enabled with EMBEDDING_DEVICE.
+        logger.info("FastEmbed auto device resolved to CPU-safe mode")
+        return "cpu"
 
-    try:
-        import torch
-
-        if (
-            hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
-            logger.info(
-                "Apple MPS detected for embedding acceleration"
-            )
-            return "mps"
-
-    except ImportError:
-        pass
-    except Exception as exc:
-        logger.warning(
-            "MPS detection failed: %s",
-            exc,
-        )
-
-    logger.info("Using CPU for embedding computation")
     return "cpu"
 
 
@@ -113,9 +86,11 @@ def get_optimal_batch_size(
     model_name: str,
 ) -> int:
     """
-    Select a conservative batch size based on device/model size.
+    Select a conservative batch size.
 
-    The value is only a default. Individual callers can override it.
+    FastEmbed itself supports larger batches, but PolicyGuardAI is designed
+    to coexist with Streamlit, RAG, parsing, and LLM client components inside
+    a constrained deployment. Keeping this conservative protects memory.
     """
     model_lower = model_name.lower()
 
@@ -131,10 +106,28 @@ def get_optimal_batch_size(
     if device == "cuda":
         return base_size * 2
 
-    if device == "mps":
-        return base_size
-
     return max(4, base_size // 2)
+
+
+def _l2_normalize(
+    embeddings: np.ndarray,
+) -> np.ndarray:
+    """L2-normalize embedding rows for cosine-compatible similarity."""
+    array = np.asarray(embeddings, dtype=np.float32)
+
+    if array.size == 0:
+        return array
+
+    if array.ndim == 1:
+        norm = float(np.linalg.norm(array))
+        if norm > 0.0:
+            return array / norm
+        return array
+
+    norms = np.linalg.norm(array, axis=1, keepdims=True)
+    norms = np.maximum(norms, np.finfo(np.float32).eps)
+
+    return array / norms
 
 
 # =============================================================================
@@ -144,18 +137,15 @@ def get_optimal_batch_size(
 
 class EmbedderSingleton:
     """
-    Thread-safe singleton around SentenceTransformer.
+    Thread-safe singleton around FastEmbed TextEmbedding.
 
-    The model is loaded only when the first EmbedderSingleton instance
-    is requested.
+    The model is initialized when the first global embedder is requested.
     """
 
     _instance: Optional["EmbedderSingleton"] = None
     _instance_lock = threading.Lock()
 
-    def __new__(
-        cls,
-    ) -> "EmbedderSingleton":
+    def __new__(cls) -> "EmbedderSingleton":
         """Create exactly one singleton instance."""
         if cls._instance is None:
             with cls._instance_lock:
@@ -165,13 +155,7 @@ class EmbedderSingleton:
         return cls._instance
 
     def __init__(self) -> None:
-        """
-        Initialize configuration once.
-
-        Actual model loading is performed here because get_embedder()
-        itself is already lazy. Initialization is protected by a separate
-        lock so concurrent callers cannot load the model twice.
-        """
+        """Initialize configuration and load the FastEmbed model once."""
         if getattr(self, "_configured", False):
             return
 
@@ -180,10 +164,6 @@ class EmbedderSingleton:
                 return
 
             self._configured = True
-
-            # -----------------------------------------------------------------
-            # Configuration
-            # -----------------------------------------------------------------
 
             self.model_name = (
                 os.getenv(
@@ -195,7 +175,7 @@ class EmbedderSingleton:
                     ),
                 )
                 or "BAAI/bge-small-en-v1.5"
-            )
+            ).strip()
 
             self.cache_dir = Path(
                 os.getenv(
@@ -204,9 +184,7 @@ class EmbedderSingleton:
                         getattr(
                             settings,
                             "HF_CACHE_DIR",
-                            project_root
-                            / ".cache"
-                            / "huggingface",
+                            project_root / ".cache" / "huggingface",
                         )
                     ),
                 )
@@ -217,15 +195,15 @@ class EmbedderSingleton:
                 exist_ok=True,
             )
 
-            # Make Hugging Face / Sentence Transformers use the
-            # application's configured cache location.
+            # Keep the application's cache policy consistent across Hugging
+            # Face-compatible components and FastEmbed.
             os.environ.setdefault(
                 "HF_HOME",
                 str(self.cache_dir),
             )
             os.environ.setdefault(
-                "SENTENCE_TRANSFORMERS_HOME",
-                str(self.cache_dir),
+                "HF_HUB_DISABLE_SYMLINKS_WARNING",
+                "1",
             )
 
             self._device = detect_optimal_device()
@@ -234,11 +212,35 @@ class EmbedderSingleton:
                 self.model_name,
             )
 
-            self.max_seq_length = int(
-                os.getenv(
-                    "EMBEDDING_MAX_SEQ_LENGTH",
-                    "512",
+            configured_batch = os.getenv(
+                "EMBEDDING_BATCH_SIZE",
+            )
+            if configured_batch:
+                try:
+                    self._batch_size = max(
+                        1,
+                        min(256, int(configured_batch)),
+                    )
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid EMBEDDING_BATCH_SIZE=%r; using %s",
+                        configured_batch,
+                        self._batch_size,
+                    )
+
+            try:
+                self.max_seq_length = int(
+                    os.getenv(
+                        "EMBEDDING_MAX_SEQ_LENGTH",
+                        "512",
+                    )
                 )
+            except (TypeError, ValueError):
+                self.max_seq_length = 512
+
+            self.max_seq_length = max(
+                1,
+                min(512, self.max_seq_length),
             )
 
             self.normalize_embeddings = True
@@ -258,7 +260,7 @@ class EmbedderSingleton:
             self._model_lock = threading.RLock()
 
             logger.info(
-                "Embedder configuration: model=%s device=%s batch=%s",
+                "FastEmbed configuration: model=%s device=%s batch=%s",
                 self.model_name,
                 self._device,
                 self._batch_size,
@@ -270,57 +272,80 @@ class EmbedderSingleton:
     # MODEL LOADING
     # -------------------------------------------------------------------------
 
-    def _import_sentence_transformer(self):
-        """Import SentenceTransformer with a useful error message."""
+    def _import_fastembed(self):
+        """Import FastEmbed with a useful error message."""
         try:
-            from sentence_transformers import SentenceTransformer
+            from fastembed import TextEmbedding
 
-            return SentenceTransformer
+            return TextEmbedding
 
         except ImportError as exc:
             message = (
-                "sentence-transformers is not installed. "
-                "Install it with: pip install sentence-transformers"
+                "fastembed is not installed. "
+                "Install it with: pip install fastembed"
             )
 
             self._initialization_error = message
             self._stats["last_error"] = message
-
             logger.error(message)
 
             raise RuntimeError(message) from exc
 
+    def _create_model(self):
+        """Create the FastEmbed model with a CPU-safe fallback."""
+        TextEmbedding = self._import_fastembed()
+
+        kwargs: Dict[str, Any] = {
+            "model_name": self.model_name,
+            "cache_dir": str(self.cache_dir),
+            "lazy_load": False,
+        }
+
+        if self._device == "cuda":
+            kwargs["cuda"] = True
+
+        try:
+            return TextEmbedding(**kwargs)
+        except Exception:
+            if self._device != "cpu":
+                logger.exception(
+                    "FastEmbed initialization failed on %s; "
+                    "retrying on CPU",
+                    self._device,
+                )
+                self._device = "cpu"
+                self._batch_size = get_optimal_batch_size(
+                    "cpu",
+                    self.model_name,
+                )
+                kwargs.pop("cuda", None)
+                return TextEmbedding(**kwargs)
+
+            raise
+
     def _load_model(self) -> None:
-        """Load the embedding model with automatic CPU fallback."""
+        """Load the FastEmbed model with safe fallback handling."""
         with self._model_lock:
             if self._model is not None:
                 return
-
-            SentenceTransformer = self._import_sentence_transformer()
 
             start_time = time.perf_counter()
 
             try:
                 logger.info(
-                    "Loading embedding model '%s' on %s",
+                    "Loading FastEmbed model '%s' on %s",
                     self.model_name,
                     self._device,
                 )
 
-                self._model = SentenceTransformer(
-                    self.model_name,
-                    cache_folder=str(self.cache_dir),
-                    device=self._device,
-                )
+                self._model = self._create_model()
 
                 self._configure_model()
 
-                load_time = (
-                    time.perf_counter() - start_time
-                )
+                load_time = time.perf_counter() - start_time
 
                 logger.info(
-                    "Embedding model loaded in %.2fs "
+                    "FastEmbed model loaded in %.2fs "
                     "(dimension=%s, device=%s)",
                     load_time,
                     self.dimension,
@@ -328,140 +353,96 @@ class EmbedderSingleton:
                 )
 
                 self._warmup()
+
                 self._initialized = True
                 self._initialization_error = None
 
             except Exception as exc:
                 logger.exception(
-                    "Embedding model loading failed on %s: %s",
-                    self._device,
+                    "FastEmbed model loading failed: %s",
                     exc,
                 )
 
                 self._stats["last_error"] = str(exc)
                 self._initialization_error = str(exc)
-
-                # Release partially initialized model before fallback.
                 self._dispose_model()
-
-                # GPU/MPS failure should not make the complete application
-                # unusable when CPU inference is possible.
-                if self._device != "cpu":
-                    logger.warning(
-                        "Retrying embedding model on CPU"
-                    )
-
-                    try:
-                        self._device = "cpu"
-                        self._batch_size = get_optimal_batch_size(
-                            "cpu",
-                            self.model_name,
-                        )
-
-                        self._model = SentenceTransformer(
-                            self.model_name,
-                            cache_folder=str(self.cache_dir),
-                            device="cpu",
-                        )
-
-                        self._configure_model()
-                        self._warmup()
-
-                        self._initialized = True
-                        self._initialization_error = None
-
-                        logger.info(
-                            "Embedding model CPU fallback succeeded"
-                        )
-
-                        return
-
-                    except Exception as fallback_exc:
-                        logger.exception(
-                            "CPU embedding fallback failed: %s",
-                            fallback_exc,
-                        )
-
-                        self._stats["last_error"] = str(
-                            fallback_exc
-                        )
-                        self._initialization_error = str(
-                            fallback_exc
-                        )
-                        self._dispose_model()
-
                 self._initialized = False
 
     def _configure_model(self) -> None:
-        """Apply model-level configuration after loading."""
+        """Determine and validate the model's output dimension."""
         if self._model is None:
             return
 
-        try:
-            self._model.max_seq_length = self.max_seq_length
-        except Exception as exc:
-            logger.debug(
-                "Could not set max_seq_length: %s",
-                exc,
-            )
+        dimension = None
 
+        # FastEmbed exposes model metadata through different internal paths
+        # across releases. Prefer public metadata when available and fall back
+        # to a tiny inference only when necessary.
         try:
-            dimension = (
-                self._model
-                .get_sentence_embedding_dimension()
-            )
-
-            if dimension is None:
-                raise RuntimeError(
-                    "Embedding model did not report a dimension"
+            metadata = getattr(self._model, "model", None)
+            if metadata is not None:
+                dimension = getattr(
+                    metadata,
+                    "embedding_size",
+                    None,
                 )
+        except Exception:
+            dimension = None
 
-            self._dimension = int(dimension)
+        if dimension is None:
+            try:
+                sample = next(
+                    self._model.embed(
+                        ["PolicyGuard AI dimension probe"],
+                        batch_size=1,
+                    )
+                )
+                dimension = int(np.asarray(sample).shape[-1])
+            except Exception as exc:
+                logger.error(
+                    "Could not determine FastEmbed embedding dimension: %s",
+                    exc,
+                )
+                raise
 
-        except Exception as exc:
-            logger.error(
-                "Could not determine embedding dimension: %s",
-                exc,
-            )
-            raise
+        self._dimension = int(dimension)
 
-        # Do not blindly call model.half(). Sentence-transformers models
-        # can contain components for which manual FP16 conversion is not
-        # appropriate. Let PyTorch/model configuration manage precision.
-        if self._device == "cuda":
-            logger.info(
-                "CUDA embedding enabled using model-native precision"
+        if self._dimension <= 0:
+            raise RuntimeError(
+                f"Invalid embedding dimension: {self._dimension}"
             )
 
     def _warmup(self) -> None:
-        """Run a small inference to reduce first-request latency."""
+        """Run a tiny inference to reduce first-request latency."""
         if self._model is None or self._warmup_complete:
             return
 
         try:
-            logger.info("Running embedding model warmup")
+            logger.info("Running FastEmbed embedding warmup")
 
-            self._model.encode(
-                [
-                    "PolicyGuard AI warmup",
-                    "initialization test",
-                ],
-                batch_size=2,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
+            vectors = list(
+                self._model.embed(
+                    [
+                        "PolicyGuard AI warmup",
+                        "initialization test",
+                    ],
+                    batch_size=2,
+                )
             )
+
+            if len(vectors) != 2:
+                raise RuntimeError(
+                    "FastEmbed warmup returned an unexpected number "
+                    "of vectors"
+                )
 
             self._warmup_complete = True
 
-            logger.info(
-                "Embedding model warmup complete"
-            )
+            logger.info("FastEmbed embedding warmup complete")
 
         except Exception as exc:
-            # Warmup failure should not necessarily make the model unusable.
             logger.warning(
-                "Embedding model warmup failed: %s",
+                "FastEmbed embedding warmup failed: %s",
                 exc,
             )
 
@@ -481,36 +462,25 @@ class EmbedderSingleton:
         """
         Encode one or more texts.
 
-        Returns:
-            For a single string:
-                one embedding vector.
+        The public API intentionally mirrors the previous SentenceTransformer
+        wrapper so callers throughout PolicyGuardAI do not need to change.
 
-            For a list:
-                an embedding matrix/list.
-
-            None:
-                when model encoding fails.
+        FastEmbed returns generators of NumPy arrays. This method materializes
+        them into a NumPy matrix because the vector-store and RAG layers expect
+        matrix-style embeddings.
         """
         if self._model is None:
-            logger.error(
-                "Embedding model is unavailable"
-            )
+            logger.error("Embedding model is unavailable")
             return None
-
-        # -------------------------------------------------------------
-        # Normalize input
-        # -------------------------------------------------------------
 
         single_input = isinstance(texts, str)
 
         if single_input:
             if not texts.strip():
-                logger.warning(
-                    "Empty query passed to embedder"
-                )
+                logger.warning("Empty query passed to embedder")
                 return None
 
-            input_texts = [texts]
+            input_texts = [texts.strip()]
 
         else:
             if texts is None:
@@ -519,14 +489,12 @@ class EmbedderSingleton:
             input_texts = list(texts)
 
             if not input_texts:
-                return (
-                    np.empty(
+                if convert_to_numpy:
+                    return np.empty(
                         (0, self.dimension),
                         dtype=np.float32,
                     )
-                    if convert_to_numpy
-                    else []
-                )
+                return []
 
             if any(
                 not isinstance(text, str)
@@ -562,22 +530,30 @@ class EmbedderSingleton:
 
         try:
             with self._model_lock:
-                embeddings = self._model.encode(
+                # FastEmbed exposes batch_size and parallel as runtime
+                # arguments. Unknown SentenceTransformer-only kwargs are
+                # intentionally ignored for compatibility rather than passed
+                # into ONNX Runtime.
+                embeddings_iter = self._model.embed(
                     input_texts,
                     batch_size=effective_batch_size,
-                    show_progress_bar=show_progress_bar,
-                    convert_to_numpy=convert_to_numpy,
-                    normalize_embeddings=effective_normalize,
-                    **kwargs,
                 )
+                embeddings = np.asarray(
+                    list(embeddings_iter),
+                    dtype=np.float32,
+                )
+
+            if embeddings.ndim == 1:
+                embeddings = embeddings.reshape(1, -1)
+
+            if effective_normalize:
+                embeddings = _l2_normalize(embeddings)
 
             elapsed_ms = (
                 time.perf_counter() - start
-            ) * 1000
+            ) * 1000.0
 
-            self._stats["total_encodings"] += len(
-                input_texts
-            )
+            self._stats["total_encodings"] += len(input_texts)
             self._stats["total_time_ms"] += elapsed_ms
             self._stats["last_error"] = None
 
@@ -589,13 +565,15 @@ class EmbedderSingleton:
                 )
 
             if single_input:
-                if convert_to_numpy:
-                    return np.asarray(
-                        embeddings[0],
-                        dtype=np.float32,
-                    )
+                vector = np.asarray(
+                    embeddings[0],
+                    dtype=np.float32,
+                )
 
-                return embeddings[0]
+                if convert_to_numpy:
+                    return vector
+
+                return vector
 
             if convert_to_numpy:
                 return np.asarray(
@@ -603,13 +581,16 @@ class EmbedderSingleton:
                     dtype=np.float32,
                 )
 
-            return embeddings
+            return [
+                np.asarray(vector, dtype=np.float32)
+                for vector in embeddings
+            ]
 
         except Exception as exc:
             self._stats["last_error"] = str(exc)
 
             logger.exception(
-                "Embedding encoding failed: %s",
+                "FastEmbed encoding failed: %s",
                 exc,
             )
 
@@ -678,28 +659,13 @@ class EmbedderSingleton:
         if self._dimension is not None:
             return self._dimension
 
-        if self._model is not None:
-            try:
-                dimension = (
-                    self._model
-                    .get_sentence_embedding_dimension()
-                )
-
-                if dimension is not None:
-                    self._dimension = int(dimension)
-                    return self._dimension
-
-            except Exception:
-                pass
-
-        # Do not invent a dimension when the model has failed.
         raise RuntimeError(
             "Embedding model dimension is unavailable"
         )
 
     @property
     def device(self) -> str:
-        """Return the active inference device."""
+        """Return the active FastEmbed execution device."""
         return self._device
 
     @property
@@ -723,12 +689,8 @@ class EmbedderSingleton:
 
     def get_stats(self) -> Dict[str, Any]:
         """Return embedding performance and configuration statistics."""
-        total = int(
-            self._stats["total_encodings"]
-        )
-        total_time = float(
-            self._stats["total_time_ms"]
-        )
+        total = int(self._stats["total_encodings"])
+        total_time = float(self._stats["total_time_ms"])
 
         try:
             dimension = self.dimension
@@ -737,6 +699,7 @@ class EmbedderSingleton:
 
         return {
             "model": self.model_name,
+            "runtime": "fastembed",
             "device": self._device,
             "batch_size": self._batch_size,
             "dimension": dimension,
@@ -744,14 +707,12 @@ class EmbedderSingleton:
             "initialized": self._initialized,
             "warmup_complete": self._warmup_complete,
             "total_encodings": total,
-            "total_time_ms": round(
-                total_time,
-                2,
+            "total_time_ms": round(total_time, 2),
+            "avg_time_per_encoding_ms": (
+                round(total_time / total, 3)
+                if total
+                else 0.0
             ),
-            "avg_time_per_encoding_ms": round(
-                total_time / total,
-                3,
-            ) if total else 0.0,
             "last_error": self._stats["last_error"],
             "cache_dir": str(self.cache_dir),
         }
@@ -761,7 +722,7 @@ class EmbedderSingleton:
     # -------------------------------------------------------------------------
 
     def _dispose_model(self) -> None:
-        """Release the current model as safely as possible."""
+        """Release the current FastEmbed model reference."""
         model = self._model
         self._model = None
 
@@ -769,36 +730,15 @@ class EmbedderSingleton:
             return
 
         try:
-            if self._device == "cuda":
-                try:
-                    model.to("cpu")
-                except Exception:
-                    pass
-
-                try:
-                    import torch
-
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
-                except Exception:
-                    pass
-
+            del model
         except Exception as exc:
             logger.debug(
-                "Model cleanup warning: %s",
+                "FastEmbed model cleanup warning: %s",
                 exc,
             )
 
-        del model
-
     def reset(self) -> None:
-        """
-        Release the loaded model while keeping the singleton object.
-
-        The next encode attempt will report unavailable unless the global
-        singleton is reset and recreated.
-        """
+        """Release the loaded model while keeping the singleton object."""
         with self._model_lock:
             self._dispose_model()
 
@@ -807,9 +747,7 @@ class EmbedderSingleton:
             self._dimension = None
             self._initialization_error = None
 
-            logger.info(
-                "Embedder model reset"
-            )
+            logger.info("Embedder model reset")
 
     def shutdown(self) -> None:
         """Release model resources."""
@@ -820,9 +758,7 @@ class EmbedderSingleton:
             self._initialized = False
             self._dimension = None
 
-            logger.info(
-                "Embedder shutdown complete"
-            )
+            logger.info("Embedder shutdown complete")
 
 
 # =============================================================================
@@ -861,9 +797,6 @@ def reset_embedder() -> None:
                 )
 
         embedder = None
-
-        # Reset class-level singleton so a completely fresh instance can
-        # be constructed after tests/reconfiguration.
         EmbedderSingleton._instance = None
 
 
@@ -913,13 +846,14 @@ def get_embedder_stats() -> Dict[str, Any]:
 
 def test_optimized_embedder() -> None:
     """Run a basic embedder smoke test."""
-    print("\nPolicyGuard AI - Embedder Test\n")
+    print("\nPolicyGuard AI - FastEmbed Test\n")
     print("=" * 70)
 
     try:
         emb = get_embedder()
 
         print(f"Model: {emb.model_name}")
+        print(f"Runtime: FastEmbed / ONNX")
         print(f"Device: {emb.device}")
         print(f"Batch size: {emb.batch_size}")
         print(f"Dimension: {emb.dimension}")
@@ -927,149 +861,64 @@ def test_optimized_embedder() -> None:
 
         print("=" * 70)
 
-        # ---------------------------------------------------------------------
-        # Test 1: Query
-        # ---------------------------------------------------------------------
-
-        print("\nTest 1: Single query")
-
-        query = (
-            "What is the company leave policy?"
-        )
+        query = "What is the company leave policy?"
 
         start = time.perf_counter()
-
         query_embedding = encode_query(query)
-
         elapsed_ms = (
             time.perf_counter() - start
-        ) * 1000
+        ) * 1000.0
 
         if query_embedding is not None:
-            print(
-                f"Encoded in {elapsed_ms:.1f}ms"
-            )
-            print(
-                f"Shape: {query_embedding.shape}"
-            )
-            print(
-                f"Dtype: {query_embedding.dtype}"
-            )
-            print(
-                f"Norm: {np.linalg.norm(query_embedding):.4f}"
-            )
+            print(f"Query encoded in {elapsed_ms:.1f}ms")
+            print(f"Shape: {query_embedding.shape}")
+            print(f"Dtype: {query_embedding.dtype}")
+            print(f"Norm: {np.linalg.norm(query_embedding):.4f}")
         else:
-            print("Encoding failed")
-
-        # ---------------------------------------------------------------------
-        # Test 2: Batch
-        # ---------------------------------------------------------------------
-
-        print("\nTest 2: Batch documents")
+            print("Query encoding failed")
 
         documents = [
-            "Employees are entitled to paid annual leave.",
-            "Sick leave requires medical documentation when applicable.",
-            "Parental leave is available to qualifying employees.",
-            "Unpaid leave must be requested in advance.",
-            "Leave balances are tracked in the HR portal.",
+            "Employees receive annual leave according to company policy.",
+            "The code of conduct defines workplace responsibilities.",
+            "Managers should approve leave requests through the HR process.",
         ]
 
         start = time.perf_counter()
-
-        document_embeddings = encode_documents(
-            documents,
-            show_progress_bar=False,
-        )
-
+        document_embeddings = encode_documents(documents)
         elapsed_ms = (
             time.perf_counter() - start
-        ) * 1000
+        ) * 1000.0
 
         if document_embeddings is not None:
+            print(f"\nBatch encoded in {elapsed_ms:.1f}ms")
+            print(f"Shape: {document_embeddings.shape}")
+            print(f"Dtype: {document_embeddings.dtype}")
             print(
-                f"Encoded {len(documents)} documents "
-                f"in {elapsed_ms:.1f}ms"
-            )
-            print(
-                f"Shape: {document_embeddings.shape}"
+                "Row norms:",
+                np.round(
+                    np.linalg.norm(
+                        document_embeddings,
+                        axis=1,
+                    ),
+                    4,
+                ),
             )
         else:
-            print("Batch encoding failed")
+            print("Document encoding failed")
 
-        # ---------------------------------------------------------------------
-        # Test 3: Similarity
-        # ---------------------------------------------------------------------
+        print("\nStats:")
+        for key, value in emb.get_stats().items():
+            print(f"  {key}: {value}")
 
-        print("\nTest 3: Query/document similarity")
-
-        if (
-            query_embedding is not None
-            and document_embeddings is not None
-            and len(document_embeddings) > 0
-        ):
-            query_norm = np.linalg.norm(
-                query_embedding
-            )
-
-            document_norms = np.linalg.norm(
-                document_embeddings,
-                axis=1,
-            )
-
-            if query_norm > 0:
-                similarities = (
-                    document_embeddings
-                    @ query_embedding
-                ) / (
-                    document_norms * query_norm
-                )
-
-                print(
-                    "Similarity with first document:",
-                    f"{float(similarities[0]):.4f}",
-                )
-
-        # ---------------------------------------------------------------------
-        # Test 4: Stats
-        # ---------------------------------------------------------------------
-
-        print("\nTest 4: Statistics")
-
-        stats = get_embedder_stats()
-
-        for key, value in stats.items():
-            if key != "last_error" or value:
-                print(f"  {key}: {value}")
-
-        # ---------------------------------------------------------------------
-        # Test 5: Empty input
-        # ---------------------------------------------------------------------
-
-        print("\nTest 5: Input validation")
-
-        empty_result = encode_query("")
-
-        print(
-            "Empty query:",
-            "correctly rejected"
-            if empty_result is None
-            else "unexpectedly encoded",
-        )
-
-        print("\n" + "=" * 70)
-        print("Embedder test complete.")
+        print("\nFastEmbed test complete.")
 
     except Exception as exc:
         logger.exception(
-            "Embedder test failed: %s",
+            "FastEmbed test failed: %s",
             exc,
         )
-        print(
-            f"Embedder test failed: {exc}"
-        )
+        print(f"Test failed: {exc}")
 
 
 if __name__ == "__main__":
     test_optimized_embedder()
-
