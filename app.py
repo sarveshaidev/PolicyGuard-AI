@@ -2490,7 +2490,7 @@ def _index_candidate_resume(
                         uploaded_by,
                         status
                     )
-                    VALUES (?, ?, ?, ?, ?, 'bench')
+                    VALUES (?, ?, ?, ?, ?, ?, 'bench')
                     """,
                     (
                         candidate_name,
