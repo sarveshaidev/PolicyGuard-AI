@@ -727,8 +727,6 @@ def _init_database() -> bool:
         return False
 
 
-_DB_READY = _init_database()
-
 # =============================================================================
 # PASSWORD / AUTHENTICATION
 # =============================================================================
@@ -750,6 +748,10 @@ def _hash_password(password: str) -> Optional[bytes]:
     except Exception:
         logger.exception("Password hashing failed")
         return None
+
+
+# Database initialization must run only after _hash_password is defined.
+_DB_READY = _init_database()
 
 
 def _verify_password(
