@@ -727,6 +727,7 @@ def _init_database() -> bool:
         return False
 
 
+_DB_READY = _init_database()
 
 # =============================================================================
 # PASSWORD / AUTHENTICATION
@@ -750,7 +751,6 @@ def _hash_password(password: str) -> Optional[bytes]:
         logger.exception("Password hashing failed")
         return None
 
-_DB_READY = _init_database()
 
 def _verify_password(
     stored_hash: Any,
@@ -916,7 +916,7 @@ def _login_user(
                     failed_login_attempts,
                     last_failed_login
                 FROM users
-                WHERE organization_id = ? AND username = ?
+                WHERE username = ?
                 """,
                 (_current_organization_id(), username),
             ).fetchone()
@@ -3541,7 +3541,7 @@ def _record_document(
                 status,
                 ocr_used
             )
-            VALUES (?, ?, ?, ?, ?, 'active', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
             """,
             (
                 filename,
@@ -5713,4 +5713,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
