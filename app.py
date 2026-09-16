@@ -2662,15 +2662,7 @@ def _render_resume_viewer(
     )
 
     if resume_path.suffix.lower() == ".pdf":
-        import base64
-        encoded = base64.b64encode(resume_bytes).decode("ascii")
-        st.components.v1.html(
-            f'''<iframe src="data:application/pdf;base64,{encoded}"
-                width="100%" height="800" style="border:1px solid #333; border-radius:8px;"
-                title="Resume preview"></iframe>''',
-            height=820,
-            scrolling=True,
-        )
+        st.pdf(resume_bytes, height=800)
     else:
         st.info(
             "Inline preview is available for PDF resumes. Use Download Resume "
