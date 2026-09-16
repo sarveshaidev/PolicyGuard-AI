@@ -1067,7 +1067,7 @@ def _update_user_role(
 
     if HARDENED_AUTH_DATABASE_AVAILABLE and _auth_database is not None:
         try:
-            success, message = _auth_database.update_user_role(
+            success = _auth_database.update_user_role(
                 int(user_id),
                 new_role,
                 updated_by,
@@ -1080,9 +1080,8 @@ def _update_user_role(
                 )
             else:
                 logger.warning(
-                    "Hardened role update denied for user %s: %s",
+                    "Hardened role update denied for user %s",
                     user_id,
-                    message,
                 )
             return bool(success)
         except Exception:
