@@ -469,6 +469,9 @@ def _init_database() -> bool:
     """Create all application tables and indexes."""
     try:
         with closing(_db_connect()) as conn:
+            # Create base tables first. Legacy schema migration must run before
+            # tenant-scoped indexes are created, because older local databases
+            # may not yet contain organization_id columns.
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS users (
@@ -589,7 +592,13 @@ def _init_database() -> bool:
                     FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_talent_candidates_status
+                """
+            )
+
+            _migrate_database_schema(conn)
+
+            conn.executescript(
+                """                CREATE INDEX IF NOT EXISTS idx_talent_candidates_status
                     ON talent_candidates(status);
 
                 CREATE INDEX IF NOT EXISTS idx_talent_candidates_uploaded_by
@@ -677,8 +686,6 @@ def _init_database() -> bool:
                     ON query_cache(organization_id, namespace, user_id, role, last_accessed);
                 """
             )
-
-            _migrate_database_schema(conn)
 
             # Development convenience only.
             # Production should use an explicit administrator creation process.
@@ -1706,6 +1713,889 @@ button[kind="primary"] {
 section[data-testid="stFileUploaderDropzone"] {
     border-radius: 14px;
 }
+
+/* Product-first overview */
+.pg-product-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 1.25rem;
+    padding: 2.35rem;
+    margin-bottom: 1.25rem;
+    border: 1px solid rgba(148,163,184,.17);
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 90% 10%, rgba(167,139,250,.16), transparent 34%),
+        radial-gradient(circle at 10% 90%, rgba(96,165,250,.13), transparent 38%),
+        linear-gradient(135deg, rgba(15,23,42,.96), rgba(30,41,59,.72));
+    box-shadow: 0 24px 80px rgba(0,0,0,.25);
+}
+
+.pg-product-hero-main {
+    min-width: 0;
+}
+
+.pg-product-title {
+    font-size: clamp(2.25rem, 5vw, 4.45rem);
+    line-height: 1.02;
+    font-weight: 850;
+    letter-spacing: -.045em;
+    max-width: 980px;
+    background: linear-gradient(135deg, #f8fafc 0%, #bfdbfe 45%, #c4b5fd 78%, #a7f3d0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.pg-product-subtitle {
+    max-width: 850px;
+    margin-top: 1.05rem;
+    color: #b8c3d4;
+    font-size: 1.08rem;
+    line-height: 1.72;
+}
+
+.pg-eyebrow,
+.pg-section-label,
+.pg-feature-kicker,
+.pg-hero-mini-label {
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    font-weight: 800;
+}
+
+.pg-eyebrow {
+    color: #93c5fd;
+    font-size: .73rem;
+    margin-bottom: .8rem;
+}
+
+.pg-product-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .55rem;
+    margin-top: 1.35rem;
+}
+
+.pg-product-badges span {
+    display: inline-flex;
+    align-items: center;
+    padding: .45rem .72rem;
+    border: 1px solid rgba(148,163,184,.17);
+    border-radius: 999px;
+    background: rgba(15,23,42,.48);
+    color: #dbeafe;
+    font-size: .76rem;
+    font-weight: 700;
+}
+
+.pg-product-hero-side {
+    align-self: stretch;
+    padding: 1.25rem;
+    border-radius: 20px;
+    border: 1px solid rgba(148,163,184,.14);
+    background: rgba(2,6,23,.34);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.pg-hero-mini-label {
+    color: #64748b;
+    font-size: .67rem;
+}
+
+.pg-hero-mini-title {
+    margin-top: .45rem;
+    color: #f8fafc;
+    font-size: 1.12rem;
+    font-weight: 800;
+    line-height: 1.35;
+}
+
+.pg-hero-mini-copy {
+    margin-top: .65rem;
+    color: #94a3b8;
+    font-size: .84rem;
+    line-height: 1.55;
+}
+
+.pg-section-spaced {
+    margin-top: 2.15rem;
+}
+
+.pg-section-heading {
+    margin: -.15rem 0 1rem;
+    color: #f8fafc;
+    font-size: 1.35rem;
+    line-height: 1.3;
+    font-weight: 800;
+    letter-spacing: -.02em;
+}
+
+.pg-intro-copy {
+    max-width: 980px;
+    margin-bottom: 1.1rem;
+    padding: 1.1rem 1.25rem;
+    border-left: 3px solid rgba(96,165,250,.65);
+    border-radius: 0 14px 14px 0;
+    background: rgba(15,23,42,.38);
+    color: #aeb9c9;
+    line-height: 1.72;
+}
+
+.pg-intro-copy strong {
+    color: #f8fafc;
+}
+
+.pg-product-card,
+.pg-audience-card,
+.pg-quick-card {
+    height: 100%;
+    border: 1px solid rgba(148,163,184,.14);
+    border-radius: 20px;
+    background: linear-gradient(145deg, rgba(17,24,39,.84), rgba(30,41,59,.52));
+    box-shadow: 0 10px 35px rgba(0,0,0,.12);
+}
+
+.pg-product-card {
+    min-height: 175px;
+    padding: 1.25rem;
+}
+
+.pg-number,
+.pg-workflow-number,
+.pg-flow-number {
+    color: #93c5fd;
+    font-weight: 850;
+    letter-spacing: .06em;
+    font-size: .78rem;
+}
+
+.pg-product-card-title {
+    margin-top: .7rem;
+    color: #f8fafc;
+    font-size: 1.03rem;
+    font-weight: 800;
+}
+
+.pg-product-card-text {
+    margin-top: .4rem;
+    color: #94a3b8;
+    font-size: .88rem;
+    line-height: 1.58;
+}
+
+.pg-feature-card {
+    height: 100%;
+    min-height: 330px;
+    padding: 1.55rem;
+    border: 1px solid rgba(148,163,184,.15);
+    border-radius: 24px;
+    background:
+        radial-gradient(circle at 95% 5%, rgba(96,165,250,.09), transparent 30%),
+        linear-gradient(145deg, rgba(17,24,39,.9), rgba(30,41,59,.58));
+}
+
+.pg-feature-talent {
+    background:
+        radial-gradient(circle at 95% 5%, rgba(167,139,250,.11), transparent 30%),
+        linear-gradient(145deg, rgba(17,24,39,.9), rgba(30,41,59,.58));
+}
+
+.pg-feature-top {
+    display: flex;
+    align-items: center;
+    gap: .85rem;
+}
+
+.pg-feature-icon {
+    width: 48px;
+    height: 48px;
+    flex: 0 0 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 15px;
+    background: rgba(96,165,250,.11);
+    border: 1px solid rgba(96,165,250,.18);
+    color: #bfdbfe;
+    font-size: 1.45rem;
+    font-weight: 800;
+}
+
+.pg-feature-talent .pg-feature-icon {
+    background: rgba(167,139,250,.11);
+    border-color: rgba(167,139,250,.18);
+    color: #ddd6fe;
+}
+
+.pg-feature-kicker {
+    color: #64748b;
+    font-size: .65rem;
+}
+
+.pg-feature-title {
+    margin-top: .18rem;
+    color: #f8fafc;
+    font-size: 1.42rem;
+    font-weight: 850;
+}
+
+.pg-feature-description {
+    margin-top: 1.1rem;
+    color: #aeb9c9;
+    line-height: 1.65;
+}
+
+.pg-feature-list {
+    display: grid;
+    gap: .5rem;
+    margin-top: 1.05rem;
+    color: #cbd5e1;
+    font-size: .86rem;
+}
+
+.pg-audience-card {
+    min-height: 220px;
+    padding: 1.25rem;
+}
+
+.pg-audience-badge {
+    display: inline-flex;
+    padding: .35rem .58rem;
+    border-radius: 999px;
+    background: rgba(96,165,250,.09);
+    border: 1px solid rgba(96,165,250,.15);
+    color: #93c5fd;
+    font-size: .65rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+}
+
+.pg-audience-title {
+    margin-top: .9rem;
+    color: #f8fafc;
+    font-weight: 800;
+    font-size: 1rem;
+}
+
+.pg-audience-headline {
+    margin-top: .3rem;
+    color: #cbd5e1;
+    font-size: .9rem;
+    font-weight: 700;
+}
+
+.pg-quick-card {
+    min-height: 105px;
+    padding: 1rem;
+}
+
+.pg-quick-title {
+    color: #f8fafc;
+    font-weight: 800;
+    font-size: .95rem;
+}
+
+.pg-quick-text {
+    margin-top: .35rem;
+    color: #94a3b8;
+    font-size: .8rem;
+    line-height: 1.5;
+}
+
+.pg-workflow-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    border-radius: 10px;
+    background: rgba(96,165,250,.08);
+}
+
+@media (max-width: 850px) {
+    .pg-product-hero {
+        grid-template-columns: 1fr;
+        padding: 1.45rem;
+    }
+
+    .pg-product-title {
+        font-size: clamp(2rem, 10vw, 3.25rem);
+    }
+}
+
+/* Public product landing page */
+.pg-public-shell {
+    position: relative;
+    overflow: hidden;
+    padding: .35rem 0 0;
+}
+
+.pg-public-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .55rem 0 1.25rem;
+}
+
+.pg-public-brand {
+    display: flex;
+    align-items: center;
+    gap: .72rem;
+}
+
+.pg-public-mark {
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    color: #fff;
+    font-weight: 900;
+    box-shadow: 0 8px 28px rgba(96,165,250,.2);
+}
+
+.pg-public-brand-name {
+    color: #f8fafc;
+    font-size: 1rem;
+    font-weight: 850;
+}
+
+.pg-public-brand-sub {
+    color: #64748b;
+    font-size: .68rem;
+    margin-top: .12rem;
+}
+
+.pg-public-nav-pill {
+    padding: .42rem .7rem;
+    border: 1px solid rgba(148,163,184,.16);
+    border-radius: 999px;
+    color: #93c5fd;
+    background: rgba(15,23,42,.45);
+    font-size: .65rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+}
+
+.pg-public-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(330px, .72fr);
+    gap: 2rem;
+    align-items: center;
+    min-height: 540px;
+    padding: 3rem;
+    border: 1px solid rgba(148,163,184,.16);
+    border-radius: 32px;
+    background:
+        radial-gradient(circle at 85% 18%, rgba(167,139,250,.17), transparent 28%),
+        radial-gradient(circle at 20% 85%, rgba(96,165,250,.14), transparent 32%),
+        linear-gradient(135deg, rgba(15,23,42,.97), rgba(17,24,39,.84));
+    box-shadow: 0 30px 100px rgba(0,0,0,.3);
+}
+
+.pg-public-hero-copy {
+    max-width: 900px;
+}
+
+.pg-public-eyebrow {
+    color: #93c5fd;
+    font-size: .7rem;
+    font-weight: 850;
+    letter-spacing: .16em;
+    margin-bottom: 1rem;
+}
+
+.pg-public-title {
+    margin: 0 !important;
+    font-size: clamp(2.7rem, 5.5vw, 5.35rem) !important;
+    line-height: .99 !important;
+    letter-spacing: -.055em !important;
+    font-weight: 900 !important;
+    max-width: 980px;
+    background: linear-gradient(135deg, #ffffff 0%, #dbeafe 42%, #c4b5fd 76%, #a7f3d0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.pg-public-title span {
+    background: linear-gradient(135deg, #93c5fd, #c4b5fd);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.pg-public-subtitle {
+    max-width: 820px;
+    margin-top: 1.35rem;
+    color: #aeb9c9;
+    font-size: 1.05rem;
+    line-height: 1.75;
+}
+
+.pg-public-proof-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: 1.45rem;
+}
+
+.pg-public-proof-row span {
+    padding: .48rem .72rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148,163,184,.15);
+    background: rgba(2,6,23,.35);
+    color: #dbeafe;
+    font-size: .73rem;
+    font-weight: 700;
+}
+
+.pg-public-hero-visual {
+    position: relative;
+    min-height: 390px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pg-orbit-card {
+    border: 1px solid rgba(148,163,184,.16);
+    background: rgba(2,6,23,.58);
+    box-shadow: 0 24px 70px rgba(0,0,0,.28);
+    backdrop-filter: blur(14px);
+}
+
+.pg-orbit-main {
+    width: min(100%, 340px);
+    min-height: 210px;
+    padding: 1.5rem;
+    border-radius: 26px;
+    position: relative;
+    z-index: 2;
+}
+
+.pg-orbit-kicker {
+    color: #64748b;
+    font-size: .63rem;
+    font-weight: 850;
+    letter-spacing: .14em;
+}
+
+.pg-orbit-title {
+    margin-top: .65rem;
+    color: #f8fafc;
+    font-size: 1.55rem;
+    line-height: 1.2;
+    font-weight: 850;
+}
+
+.pg-orbit-copy {
+    margin-top: .75rem;
+    color: #94a3b8;
+    font-size: .83rem;
+    line-height: 1.6;
+}
+
+.pg-orbit-small {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    gap: .65rem;
+    padding: .72rem .85rem;
+    border-radius: 17px;
+    min-width: 205px;
+    z-index: 3;
+}
+
+.pg-orbit-policy {
+    top: 12%;
+    left: 0;
+}
+
+.pg-orbit-talent {
+    right: -1%;
+    bottom: 12%;
+}
+
+.pg-orbit-icon {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(96,165,250,.1);
+    color: #bfdbfe;
+}
+
+.pg-orbit-talent .pg-orbit-icon {
+    background: rgba(167,139,250,.1);
+    color: #ddd6fe;
+}
+
+.pg-orbit-small-title {
+    color: #f8fafc;
+    font-size: .77rem;
+    font-weight: 800;
+}
+
+.pg-orbit-small-copy {
+    color: #64748b;
+    font-size: .68rem;
+    margin-top: .14rem;
+}
+
+.pg-auth-panel {
+    padding: 1.15rem 1.2rem .85rem;
+}
+
+.pg-auth-kicker,
+.pg-public-section-kicker {
+    color: #93c5fd;
+    font-size: .66rem;
+    font-weight: 850;
+    letter-spacing: .14em;
+}
+
+.pg-auth-title {
+    margin-top: .45rem;
+    color: #f8fafc;
+    font-size: 1.65rem;
+    font-weight: 850;
+}
+
+.pg-auth-copy {
+    margin-top: .4rem;
+    color: #94a3b8;
+    font-size: .82rem;
+    line-height: 1.55;
+}
+
+.pg-public-section-title {
+    margin-top: .45rem;
+    color: #f8fafc;
+    font-size: clamp(1.7rem, 3vw, 2.55rem);
+    line-height: 1.12;
+    font-weight: 880;
+    letter-spacing: -.035em;
+}
+
+.pg-public-section-title-center,
+.pg-public-section-copy-center {
+    text-align: center;
+}
+
+.pg-public-section-copy {
+    max-width: 880px;
+    margin-top: .75rem;
+    color: #94a3b8;
+    font-size: .95rem;
+    line-height: 1.72;
+}
+
+.pg-public-section-copy-center {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.pg-public-divider {
+    height: 1px;
+    margin: 3.5rem 0 2.7rem;
+    background: linear-gradient(90deg, transparent, rgba(148,163,184,.18), transparent);
+}
+
+.pg-public-mini-card {
+    height: 100%;
+    padding: 1.1rem;
+    border: 1px solid rgba(148,163,184,.13);
+    border-radius: 18px;
+    background: rgba(15,23,42,.48);
+}
+
+.pg-public-mini-wide {
+    display: flex;
+    gap: .9rem;
+    margin-top: .8rem;
+}
+
+.pg-public-mini-number {
+    color: #60a5fa;
+    font-size: .66rem;
+    font-weight: 900;
+    letter-spacing: .1em;
+}
+
+.pg-public-mini-title {
+    margin-top: .5rem;
+    color: #f8fafc;
+    font-size: .93rem;
+    font-weight: 800;
+}
+
+.pg-public-mini-wide .pg-public-mini-title {
+    margin-top: 0;
+}
+
+.pg-public-mini-copy {
+    margin-top: .4rem;
+    color: #94a3b8;
+    font-size: .78rem;
+    line-height: 1.55;
+}
+
+.pg-public-capability {
+    min-height: 320px;
+    margin-top: 1.1rem;
+    padding: 1.5rem;
+    border: 1px solid rgba(148,163,184,.15);
+    border-radius: 25px;
+    background: linear-gradient(145deg, rgba(17,24,39,.9), rgba(30,41,59,.52));
+}
+
+.pg-public-policy {
+    background:
+        radial-gradient(circle at 95% 5%, rgba(96,165,250,.11), transparent 30%),
+        linear-gradient(145deg, rgba(17,24,39,.9), rgba(30,41,59,.52));
+}
+
+.pg-public-talent {
+    background:
+        radial-gradient(circle at 95% 5%, rgba(167,139,250,.12), transparent 30%),
+        linear-gradient(145deg, rgba(17,24,39,.9), rgba(30,41,59,.52));
+}
+
+.pg-public-capability-top {
+    display: flex;
+    align-items: center;
+    gap: .85rem;
+}
+
+.pg-public-capability-icon {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 15px;
+    background: rgba(96,165,250,.1);
+    border: 1px solid rgba(96,165,250,.17);
+    color: #bfdbfe;
+    font-size: 1.35rem;
+}
+
+.pg-public-talent .pg-public-capability-icon {
+    background: rgba(167,139,250,.1);
+    border-color: rgba(167,139,250,.17);
+    color: #ddd6fe;
+}
+
+.pg-public-capability-kicker {
+    color: #64748b;
+    font-size: .63rem;
+    font-weight: 850;
+    letter-spacing: .13em;
+}
+
+.pg-public-capability-title {
+    margin-top: .18rem;
+    color: #f8fafc;
+    font-size: 1.42rem;
+    font-weight: 880;
+}
+
+.pg-public-capability-copy {
+    margin-top: 1rem;
+    color: #aeb9c9;
+    line-height: 1.65;
+    font-size: .86rem;
+}
+
+.pg-public-feature-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .52rem .9rem;
+    margin-top: 1rem;
+    color: #cbd5e1;
+    font-size: .78rem;
+}
+
+.pg-public-audience {
+    min-height: 205px;
+    margin-top: 1rem;
+    padding: 1.25rem;
+    border: 1px solid rgba(148,163,184,.14);
+    border-radius: 21px;
+    background: rgba(15,23,42,.48);
+}
+
+.pg-public-audience-badge {
+    display: inline-flex;
+    padding: .35rem .55rem;
+    border-radius: 999px;
+    border: 1px solid rgba(96,165,250,.15);
+    background: rgba(96,165,250,.07);
+    color: #93c5fd;
+    font-size: .61rem;
+    font-weight: 850;
+    letter-spacing: .08em;
+}
+
+.pg-public-audience-title {
+    margin-top: .85rem;
+    color: #f8fafc;
+    font-size: 1.05rem;
+    font-weight: 820;
+}
+
+.pg-public-audience-copy {
+    margin-top: .42rem;
+    color: #94a3b8;
+    font-size: .79rem;
+    line-height: 1.55;
+}
+
+.pg-public-audience-scope {
+    margin-top: 1rem;
+    color: #cbd5e1;
+    font-size: .72rem;
+    font-weight: 750;
+}
+
+.pg-public-section-spacer {
+    margin-top: 3.2rem;
+}
+
+.pg-public-flow {
+    min-height: 170px;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(148,163,184,.13);
+    border-radius: 18px;
+    background: rgba(15,23,42,.4);
+}
+
+.pg-public-flow-number {
+    color: #60a5fa;
+    font-size: .65rem;
+    font-weight: 900;
+    letter-spacing: .08em;
+}
+
+.pg-public-flow-title {
+    margin-top: .55rem;
+    color: #f8fafc;
+    font-size: .92rem;
+    font-weight: 820;
+}
+
+.pg-public-flow-copy {
+    margin-top: .4rem;
+    color: #94a3b8;
+    font-size: .73rem;
+    line-height: 1.52;
+}
+
+.pg-public-tech {
+    min-height: 155px;
+    margin-top: 1rem;
+    padding: 1.15rem;
+    border: 1px solid rgba(148,163,184,.13);
+    border-radius: 19px;
+    background: rgba(15,23,42,.4);
+}
+
+.pg-public-tech-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #60a5fa;
+    box-shadow: 0 0 18px rgba(96,165,250,.45);
+}
+
+.pg-public-tech-title {
+    margin-top: .65rem;
+    color: #f8fafc;
+    font-size: .9rem;
+    font-weight: 820;
+}
+
+.pg-public-tech-copy {
+    margin-top: .38rem;
+    color: #94a3b8;
+    font-size: .75rem;
+    line-height: 1.55;
+}
+
+.pg-public-bottom-note {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin-top: 2.5rem;
+    padding: 1rem;
+    border-top: 1px solid rgba(148,163,184,.1);
+    color: #64748b;
+    font-size: .68rem;
+}
+
+.pg-public-bottom-note span:first-child {
+    color: #cbd5e1;
+    font-weight: 750;
+}
+
+@media (max-width: 1050px) {
+    .pg-public-hero {
+        grid-template-columns: 1fr;
+        padding: 2.2rem;
+    }
+
+    .pg-public-hero-visual {
+        min-height: 310px;
+    }
+
+    .pg-orbit-policy {
+        left: 4%;
+    }
+
+    .pg-orbit-talent {
+        right: 4%;
+    }
+}
+
+@media (max-width: 700px) {
+    .pg-public-nav-pill {
+        display: none;
+    }
+
+    .pg-public-hero {
+        min-height: auto;
+        padding: 1.45rem;
+        border-radius: 24px;
+    }
+
+    .pg-public-title {
+        font-size: clamp(2.35rem, 12vw, 3.5rem) !important;
+    }
+
+    .pg-public-hero-visual {
+        min-height: 330px;
+        transform: scale(.92);
+    }
+
+    .pg-orbit-small {
+        min-width: 175px;
+    }
+
+    .pg-public-feature-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pg-public-divider {
+        margin-top: 2.3rem;
+    }
+}
+
 </style>
 """
 
@@ -3839,174 +4729,502 @@ def _index_uploaded_file(
 
 
 def _show_auth_page() -> None:
-    """Render a polished authentication experience."""
-    st.markdown(
+    """Render the public product landing page and secure authentication experience."""
+    # -------------------------------------------------------------------------
+    # PUBLIC LANDING HERO
+    # -------------------------------------------------------------------------
+    st.html(
         """
-        <div class="hero">
-            <div class="hero-title">PolicyGuard AI</div>
-            <div class="hero-sub">
-                Enterprise HR intelligence with secure retrieval,
-                role-based access control, document grounding,
-                auditability and AI-assisted policy discovery.
+        <div class="pg-public-shell">
+            <div class="pg-public-nav">
+                <div class="pg-public-brand">
+                    <div class="pg-public-mark">P</div>
+                    <div>
+                        <div class="pg-public-brand-name">PolicyGuard AI</div>
+                        <div class="pg-public-brand-sub">Enterprise HR Intelligence</div>
+                    </div>
+                </div>
+                <div class="pg-public-nav-pill">SECURE HR INTELLIGENCE</div>
+            </div>
+
+            <div class="pg-public-hero">
+                <div class="pg-public-hero-copy">
+                    <div class="pg-public-eyebrow">
+                        POLICYGUARD AI · POLICY + TALENT INTELLIGENCE
+                    </div>
+                    <h1 class="pg-public-title">
+                        PolicyGuard AI: Unified HR & Talent Intelligence
+                    </h1>
+                    <div class="pg-public-subtitle">
+                        PolicyGuard AI brings organization-approved HR knowledge
+                        and internal talent intelligence together in a controlled,
+                        role-aware workspace — helping employees find policy
+                        information and helping HR teams work with talent data
+                        from one place.
+                    </div>
+                    <div class="pg-public-proof-row">
+                        <span>Policy-grounded answers</span>
+                        <span>Talent matching</span>
+                        <span>Role-aware access</span>
+                        <span>Audit-ready controls</span>
+                    </div>
+                </div>
+
+                <div class="pg-public-hero-visual">
+                    <div class="pg-orbit-card pg-orbit-main">
+                        <div class="pg-orbit-kicker">TWO INTELLIGENCE LAYERS</div>
+                        <div class="pg-orbit-title">HR knowledge → HR action</div>
+                        <div class="pg-orbit-copy">
+                            Move from finding the right policy information to
+                            working with internal talent workflows without
+                            leaving the controlled HR environment.
+                        </div>
+                    </div>
+                    <div class="pg-orbit-card pg-orbit-small pg-orbit-policy">
+                        <div class="pg-orbit-icon">✦</div>
+                        <div>
+                            <div class="pg-orbit-small-title">Policy Intelligence</div>
+                            <div class="pg-orbit-small-copy">Grounded HR knowledge</div>
+                        </div>
+                    </div>
+                    <div class="pg-orbit-card pg-orbit-small pg-orbit-talent">
+                        <div class="pg-orbit-icon">◈</div>
+                        <div>
+                            <div class="pg-orbit-small-title">Talent Intelligence</div>
+                            <div class="pg-orbit-small-copy">JD-to-resume matching</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
-    c1, c2, c3 = st.columns(3)
+    # -------------------------------------------------------------------------
+    # AUTHENTICATION PANEL
+    # -------------------------------------------------------------------------
+    auth_left, auth_right = st.columns([1.25, 0.9], gap="large")
 
-    cards = [
-        (
-            "🔐",
-            "Enterprise Security",
-            "RBAC, security validation, brute-force protection and audit trails.",
-        ),
-        (
-            "🧠",
-            "Grounded AI",
-            "Hybrid retrieval, reranking and RAG orchestration for document-based answers.",
-        ),
-        (
-            "📈",
-            "Operational Visibility",
-            "Query performance, document health, system components and audit events.",
-        ),
-    ]
+    with auth_left:
+        st.markdown(
+            """
+            <div class="pg-public-section-kicker">WHY POLICYGUARD AI</div>
+            <div class="pg-public-section-title">
+                Designed for the Reality of Modern HR
+            </div>
+            <div class="pg-public-section-copy">
+                HR information is often distributed across policy documents,
+                internal files and talent records. PolicyGuard AI connects the
+                workflows while keeping access controlled by role and organization.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    for column, (icon, title, description) in zip(
-        (c1, c2, c3),
-        cards,
-    ):
-        with column:
+        pain_left, pain_right = st.columns(2)
+
+        with pain_left:
             st.markdown(
-                f"""
-                <div class="pg-card">
-                    <div class="pg-card-icon">{icon}</div>
-                    <div class="pg-card-title">{_escape(title)}</div>
-                    <div class="pg-card-text">{_escape(description)}</div>
+                """
+                <div class="pg-public-mini-card">
+                    <div class="pg-public-mini-number">01</div>
+                    <div class="pg-public-mini-title">Find answers faster</div>
+                    <div class="pg-public-mini-copy">
+                        Ask natural-language questions instead of manually
+                        searching through long HR policy documents.
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-    st.write("")
-
-    login_tab, register_tab = st.tabs(
-        ["🔑 Sign In", "✨ Create Account"]
-    )
-
-    with login_tab:
-        with st.form("login_form", clear_on_submit=False):
-            username = st.text_input(
-                "Username",
-                key="login_username",
-                placeholder="Your username",
+        with pain_right:
+            st.markdown(
+                """
+                <div class="pg-public-mini-card">
+                    <div class="pg-public-mini-number">02</div>
+                    <div class="pg-public-mini-title">Connect talent workflows</div>
+                    <div class="pg-public-mini-copy">
+                        Give authorized HR users a structured way to compare
+                        job requirements with internal resumes and skills.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            password = st.text_input(
-                "Password",
-                type="password",
-                key="login_password",
-                placeholder="Your password",
-            )
+        st.markdown(
+            """
+            <div class="pg-public-mini-card pg-public-mini-wide">
+                <div class="pg-public-mini-number">03</div>
+                <div>
+                    <div class="pg-public-mini-title">Keep access under control</div>
+                    <div class="pg-public-mini-copy">
+                        Authentication, role-based permissions, organization
+                        scoping and audit-oriented controls are part of the
+                        application architecture rather than just visual UI.
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            submitted = st.form_submit_button(
-                "Sign In",
-                type="primary",
-                use_container_width=True,
-            )
+    with auth_right:
+        st.markdown(
+            """
+            <div class="pg-auth-panel">
+                <div class="pg-auth-kicker">SECURE WORKSPACE ACCESS</div>
+                <div class="pg-auth-title">Welcome back.</div>
+                <div class="pg-auth-copy">
+                    Sign in to open the workspace available to your role.
+                    New accounts begin with Viewer permissions.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        if submitted:
-            with st.spinner("Authenticating securely…"):
-                success, message, role, user_id = _login_user(
-                    username,
-                    password,
+        login_tab, register_tab = st.tabs(
+            ["Sign In", "Create Account"]
+        )
+
+        with login_tab:
+            with st.form("login_form", clear_on_submit=False):
+                username = st.text_input(
+                    "Username",
+                    key="login_username",
+                    placeholder="Your username",
                 )
 
-            if success:
-                st.session_state.authenticated = True
-                st.session_state.username = _safe_username(username)
-                st.session_state.user_role = _safe_role(role)
-                st.session_state.user_id = user_id
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    key="login_password",
+                    placeholder="Your password",
+                )
 
-                organization_id = _configured_organization_id()
-                try:
-                    with closing(_db_connect()) as conn:
-                        user_row = conn.execute(
-                            "SELECT organization_id FROM users WHERE id = ? AND username = ?",
-                            (int(user_id), _safe_username(username)),
-                        ).fetchone()
-                    if user_row and user_row["organization_id"]:
-                        organization_id = _clean_text(
-                            user_row["organization_id"], MAX_ORGANIZATION_ID_LENGTH
-                        )
-                except Exception:
-                    logger.exception("Could not resolve authenticated organization.")
+                submitted = st.form_submit_button(
+                    "Sign In to PolicyGuard AI",
+                    type="primary",
+                    use_container_width=True,
+                )
 
-                if not ORGANIZATION_ID_PATTERN.fullmatch(organization_id):
-                    st.error("Your account has an invalid organization scope. Contact an administrator.")
-                    return
-
-                st.session_state.organization_id = organization_id
-                st.session_state.view = "home"
-                st.session_state.show_onboarding = True
-                st.session_state.first_login = True
-                st.session_state.messages = []
-                st.session_state.query_history = []
-
-                st.success(message)
-                time.sleep(0.4)
-                st.rerun()
-            else:
-                st.error(message)
-
-    with register_tab:
-        with st.form("register_form", clear_on_submit=True):
-            new_username = st.text_input(
-                "Username",
-                key="register_username",
-                placeholder="3-64 characters",
-            )
-
-            new_password = st.text_input(
-                "Password",
-                type="password",
-                key="register_password",
-                placeholder="At least 12 characters",
-            )
-
-            confirm_password = st.text_input(
-                "Confirm Password",
-                type="password",
-                key="register_password_confirm",
-                placeholder="Repeat your password",
-            )
-
-            submitted = st.form_submit_button(
-                "Create Account",
-                type="primary",
-                use_container_width=True,
-            )
-
-        if submitted:
-            if new_password != confirm_password:
-                st.error("Passwords do not match.")
-            else:
-                with st.spinner("Creating your account…"):
-                    success, message = _register_user(
-                        new_username,
-                        new_password,
+            if submitted:
+                with st.spinner("Authenticating securely…"):
+                    success, message, role, user_id = _login_user(
+                        username,
+                        password,
                     )
 
                 if success:
+                    st.session_state.authenticated = True
+                    st.session_state.username = _safe_username(username)
+                    st.session_state.user_role = _safe_role(role)
+                    st.session_state.user_id = user_id
+
+                    organization_id = _configured_organization_id()
+                    try:
+                        with closing(_db_connect()) as conn:
+                            user_row = conn.execute(
+                                "SELECT organization_id FROM users WHERE id = ? AND username = ?",
+                                (int(user_id), _safe_username(username)),
+                            ).fetchone()
+                        if user_row and user_row["organization_id"]:
+                            organization_id = _clean_text(
+                                user_row["organization_id"], MAX_ORGANIZATION_ID_LENGTH
+                            )
+                    except Exception:
+                        logger.exception("Could not resolve authenticated organization.")
+
+                    if not ORGANIZATION_ID_PATTERN.fullmatch(organization_id):
+                        st.error("Your account has an invalid organization scope. Contact an administrator.")
+                        return
+
+                    st.session_state.organization_id = organization_id
+                    st.session_state.view = "home"
+                    st.session_state.show_onboarding = True
+                    st.session_state.first_login = True
+                    st.session_state.messages = []
+                    st.session_state.query_history = []
+
                     st.success(message)
-                    st.info(
-                        "New accounts start with Viewer permissions. "
-                        "An administrator can promote the account when appropriate."
-                    )
+                    time.sleep(0.4)
+                    st.rerun()
                 else:
                     st.error(message)
+
+        with register_tab:
+            with st.form("register_form", clear_on_submit=True):
+                new_username = st.text_input(
+                    "Username",
+                    key="register_username",
+                    placeholder="3-64 characters",
+                )
+
+                new_password = st.text_input(
+                    "Password",
+                    type="password",
+                    key="register_password",
+                    placeholder="At least 12 characters",
+                )
+
+                confirm_password = st.text_input(
+                    "Confirm Password",
+                    type="password",
+                    key="register_password_confirm",
+                    placeholder="Repeat your password",
+                )
+
+                submitted = st.form_submit_button(
+                    "Create Account",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+                if new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    with st.spinner("Creating your account…"):
+                        success, message = _register_user(
+                            new_username,
+                            new_password,
+                        )
+
+                    if success:
+                        st.success(message)
+                        st.info(
+                            "New accounts start with Viewer permissions. "
+                            "An administrator can promote the account when appropriate."
+                        )
+                    else:
+                        st.error(message)
+
+    # -------------------------------------------------------------------------
+    # PRODUCT STORY
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <div class="pg-public-divider"></div>
+
+        <div class="pg-public-section-kicker">WHAT IS POLICYGUARD AI?</div>
+        <div class="pg-public-section-title pg-public-section-title-center">
+            Intelligence Rooted in Institutional Knowledge
+        </div>
+        <div class="pg-public-section-copy pg-public-section-copy-center">
+            PolicyGuard AI is an enterprise HR intelligence platform focused on
+            two connected workflows: answering policy questions from approved
+            organizational knowledge and helping authorized HR users work with
+            internal talent data.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    capability_left, capability_right = st.columns(2, gap="large")
+
+    with capability_left:
+        st.markdown(
+            """
+            <div class="pg-public-capability pg-public-policy">
+                <div class="pg-public-capability-top">
+                    <div class="pg-public-capability-icon">✦</div>
+                    <div>
+                        <div class="pg-public-capability-kicker">01 · KNOWLEDGE</div>
+                        <div class="pg-public-capability-title">Policy Intelligence</div>
+                    </div>
+                </div>
+                <div class="pg-public-capability-copy">
+                    A natural-language interface over indexed HR policy and
+                    organizational documents, designed to surface relevant
+                    information with supporting source context.
+                </div>
+                <div class="pg-public-feature-grid">
+                    <div>✓ Natural-language policy Q&A</div>
+                    <div>✓ Document-grounded retrieval</div>
+                    <div>✓ Source and page context</div>
+                    <div>✓ Conversation context</div>
+                    <div>✓ Role-aware access</div>
+                    <div>✓ Knowledge-base management</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with capability_right:
+        st.markdown(
+            """
+            <div class="pg-public-capability pg-public-talent">
+                <div class="pg-public-capability-top">
+                    <div class="pg-public-capability-icon">◈</div>
+                    <div>
+                        <div class="pg-public-capability-kicker">02 · TALENT</div>
+                        <div class="pg-public-capability-title">Talent Intelligence</div>
+                    </div>
+                </div>
+                <div class="pg-public-capability-copy">
+                    A controlled HR workflow for using job descriptions and
+                    internal resumes to surface relevant skills and structured
+                    match signals.
+                </div>
+                <div class="pg-public-feature-grid">
+                    <div>✓ Job-description based matching</div>
+                    <div>✓ Semantic and skill-fit signals</div>
+                    <div>✓ Internal resume pool</div>
+                    <div>✓ Match details</div>
+                    <div>✓ Resume review</div>
+                    <div>✓ Authorized HR-only workflow</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # -------------------------------------------------------------------------
+    # WHO IT IS FOR
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <div class="pg-public-section-kicker pg-public-section-spacer">WHO IT IS FOR</div>
+        <div class="pg-public-section-title">
+            Unified Platform, Tailored Role-Based Experiences.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    audience = st.columns(3, gap="medium")
+    audience_cards = [
+        (
+            "EMPLOYEES · VIEWERS",
+            "Find trusted HR information",
+            "Ask policy questions in natural language and access the approved information available to your role.",
+            "Policy Intelligence",
+        ),
+        (
+            "HR · EDITORS",
+            "Operate the HR intelligence workspace",
+            "Manage organizational knowledge, answer policy questions and use Talent Intelligence for internal matching workflows.",
+            "Policy + Talent",
+        ),
+        (
+            "HR LEADS · ADMINS",
+            "Govern the environment",
+            "Access the broader workspace, user and role management, audit visibility and administrative capabilities.",
+            "Full workspace",
+        ),
+    ]
+
+    for column, (badge, title, description, scope) in zip(audience, audience_cards):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-public-audience">
+                    <div class="pg-public-audience-badge">{_escape(badge)}</div>
+                    <div class="pg-public-audience-title">{_escape(title)}</div>
+                    <div class="pg-public-audience-copy">{_escape(description)}</div>
+                    <div class="pg-public-audience-scope">{_escape(scope)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # -------------------------------------------------------------------------
+    # HOW IT WORKS
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <div class="pg-public-section-kicker pg-public-section-spacer">HOW IT WORKS</div>
+        <div class="pg-public-section-title">
+            End-to-End Governance: From Raw Data to HR Intelligence.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    flow = st.columns(5, gap="small")
+    flow_items = [
+        ("01", "Knowledge", "Policies and approved documents enter the knowledge workflow."),
+        ("02", "Understand", "Content is parsed and prepared for retrieval and matching."),
+        ("03", "Retrieve", "Relevant information is selected for the requested workflow."),
+        ("04", "Assist", "Users receive grounded answers or structured talent match signals."),
+        ("05", "Control", "Role, organization and audit controls govern access and operations."),
+    ]
+
+    for column, (number, title, description) in zip(flow, flow_items):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-public-flow">
+                    <div class="pg-public-flow-number">{_escape(number)}</div>
+                    <div class="pg-public-flow-title">{_escape(title)}</div>
+                    <div class="pg-public-flow-copy">{_escape(description)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # -------------------------------------------------------------------------
+    # TECHNICAL FOUNDATION — deliberately below the product explanation
+    # -------------------------------------------------------------------------
+    st.markdown(
+        """
+        <div class="pg-public-section-kicker pg-public-section-spacer">TECHNICAL FOUNDATION</div>
+        <div class="pg-public-section-title">
+            Enterprise Architecture, Purpose-Built for High-Consequence HR.
+        </div>
+        <div class="pg-public-section-copy">
+            The technical layer supports the product workflows above. It is
+            intentionally presented after the product story so users first
+            understand the value and then the machinery behind it.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tech = st.columns(3, gap="medium")
+    tech_cards = [
+        (
+            "Retrieval & AI",
+            "Document ingestion, embeddings, hybrid retrieval, reranking and RAG orchestration support grounded knowledge workflows.",
+        ),
+        (
+            "Security & Access",
+            "Authentication, role-based authorization, organization scoping and security validation protect workspace boundaries.",
+        ),
+        (
+            "Operations & Governance",
+            "Persistent context, audit-oriented records, system visibility and controlled administrative workflows support operational use.",
+        ),
+    ]
+
+    for column, (title, description) in zip(tech, tech_cards):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-public-tech">
+                    <div class="pg-public-tech-dot"></div>
+                    <div class="pg-public-tech-title">{_escape(title)}</div>
+                    <div class="pg-public-tech-copy">{_escape(description)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        """
+        <div class="pg-public-bottom-note">
+            <span>PolicyGuard AI</span>
+            <span>•</span>
+            <span>Enterprise HR Intelligence</span>
+            <span>•</span>
+            <span>Access is controlled by authenticated workspace role</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.caption(
         f"{APP_NAME} v{APP_VERSION} · Enterprise HR Intelligence"
@@ -4169,31 +5387,83 @@ def _render_sidebar() -> None:
     username = st.session_state.username or "User"
     role = _safe_role(st.session_state.user_role)
 
+    role_meta = {
+        "viewer": (
+            "Viewer",
+            "Policy access",
+            "Ask questions and review approved HR information.",
+        ),
+        "editor": (
+            "Editor",
+            "HR workspace",
+            "Manage knowledge and use Talent Intelligence.",
+        ),
+        "admin": (
+            "Admin",
+            "Governance",
+            "Full workspace, people, security and audit access.",
+        ),
+    }
+    role_label, role_scope, role_description = role_meta.get(
+        role,
+        role_meta["viewer"],
+    )
+
     with st.sidebar:
+        st.markdown(
+            """
+            <div class="pg-brand">
+                <div class="pg-brand-mark">P</div>
+                <div>
+                    <div class="pg-brand-name">PolicyGuard AI</div>
+                    <div class="pg-brand-sub">Enterprise HR Intelligence</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"""
+            <div class="pg-role-card">
+                <div class="pg-role-kicker">CURRENT WORKSPACE</div>
+                <div class="pg-role-name">{_escape(role_label)}</div>
+                <div class="pg-role-scope">{_escape(role_scope)}</div>
+                <div class="pg-role-description">{_escape(role_description)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
         _show_user_profile(username, role)
         _show_status_indicator()
 
-        st.divider()
-
-        st.subheader("Navigation", divider=True)
+        st.markdown(
+            '<div class="pg-sidebar-section">WORKSPACE</div>',
+            unsafe_allow_html=True,
+        )
 
         navigation = [
             ("⌂  Overview", "home"),
-            ("💬  Live Chat", "chat"),
-            ("📊  Dashboard", "dashboard"),
-            ("📚  Documents", "documents"),
+            ("✦  Policy Intelligence", "chat"),
         ]
 
         if _check_permission("editor"):
-            navigation.append(("🎯  Talent Intelligence", "talent"))
+            navigation.extend(
+                [
+                    ("◎  Knowledge Base", "documents"),
+                    ("◈  Talent Intelligence", "talent"),
+                ]
+            )
 
-        navigation.append(("🏗️  Architecture", "architecture"))
+        navigation.append(("▦  Dashboard", "dashboard"))
 
         if _check_permission("admin"):
             navigation.extend(
                 [
-                    ("🛡️  Audit Logs", "audit"),
-                    ("👥  User Management", "users"),
+                    ("⌁  Architecture", "architecture"),
+                    ("◉  Audit Logs", "audit"),
+                    ("♙  User Management", "users"),
                 ]
             )
 
@@ -4224,61 +5494,77 @@ def _render_sidebar() -> None:
 
         st.session_state.view = selected_key
 
-        st.divider()
+        if _check_permission("editor"):
+            st.markdown(
+                '<div class="pg-sidebar-section">HR OPERATIONS</div>',
+                unsafe_allow_html=True,
+            )
+            _show_upload_control(username)
 
-        _show_upload_control(username)
+        st.markdown(
+            '<div class="pg-sidebar-section">SYSTEM</div>',
+            unsafe_allow_html=True,
+        )
 
-        st.divider()
-
-        with st.expander("System Health"):
+        with st.expander("System health", expanded=False):
             components = _system_components()
 
             for name, available in components.items():
                 if available:
                     st.success(name)
-                    # st.success(name)
                 else:
                     st.warning(name)
 
-        with st.expander("Help"):
+        with st.expander("Access & help", expanded=False):
             st.markdown(
+                f"""
+                **{_escape(role_label)} workspace**
+
+                {_escape(role_description)}
+
+                **Available capabilities**
                 """
-                **Viewer**
-                - Ask policy questions
-                - View permitted analytics
+            )
 
-                **Editor (HR)**
-                - Everything a Viewer can do
-                - Upload and index policy documents
-                - Maintain an authorized internal talent pool
-                - Run JD-to-resume talent matching
+            if role == "viewer":
+                st.markdown(
+                    """
+                    - Policy Intelligence
+                    - Session dashboard
+                    - Approved knowledge access
+                    """
+                )
+            elif role == "editor":
+                st.markdown(
+                    """
+                    - Policy Intelligence
+                    - Knowledge Base management
+                    - Talent Intelligence
+                    - Session dashboard
+                    """
+                )
+            else:
+                st.markdown(
+                    """
+                    - All HR Intelligence capabilities
+                    - User and role management
+                    - Audit and governance visibility
+                    - System architecture visibility
+                    """
+                )
 
-                **Admin (HR Lead)**
-                - Everything above
-                - Manage users and roles
-                - View enterprise audit logs
-                - See company-wide talent intelligence
-
-                **Tip:** Answers should be treated as
-                document-grounded assistance, not a replacement
-                for official HR/legal decisions.
-                """
+            st.caption(
+                "Answers are document-grounded assistance and should not "
+                "replace official HR or legal decisions."
             )
 
         st.divider()
 
         if st.button(
-            "Sign Out",
+            "Sign out",
             use_container_width=True,
         ):
             _logout()
-
-
-# =============================================================================
-# ONBOARDING
-# =============================================================================
-
-
 def _show_onboarding() -> None:
     if not st.session_state.get("show_onboarding"):
         return
@@ -4287,195 +5573,531 @@ def _show_onboarding() -> None:
         st.session_state.get("user_role", "viewer")
     )
 
-    with st.container(border=True):
-        st.markdown("### 👋 Welcome to PolicyGuard AI")
+    role_title = {
+        "viewer": "Your employee policy workspace is ready.",
+        "editor": "Your HR operations workspace is ready.",
+        "admin": "Your HR governance workspace is ready.",
+    }.get(
+        role,
+        "Your PolicyGuard AI workspace is ready.",
+    )
 
-        st.write(
-            "Your workspace is ready. Start with the Live Chat to ask "
-            "questions about indexed HR policies."
+    role_next_step = {
+        "viewer": "Start with Policy Intelligence to ask a question about an indexed HR policy.",
+        "editor": "Start with the Knowledge Base or Policy Intelligence, then use Talent Intelligence when you need JD-to-resume matching.",
+        "admin": "Review the workspace overview, then use Governance and HR operations tools as required.",
+    }.get(
+        role,
+        "Start with Policy Intelligence.",
+    )
+
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="pg-onboarding">
+                <div class="pg-eyebrow">WELCOME TO POLICYGUARD AI</div>
+                <div class="pg-onboarding-title">{_escape(role_title)}</div>
+                <div class="pg-onboarding-text">{_escape(role_next_step)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
         if role in ("editor", "admin"):
             st.info(
-                "You can upload policy documents from the sidebar. "
+                "HR users can upload policy documents from the sidebar. "
                 "Once indexed, they become available to the retrieval pipeline."
             )
         else:
             st.info(
-                "You have Viewer access. Ask an administrator to upload "
-                "or update the knowledge base."
+                "Viewer access is focused on approved policy information. "
+                "Ask an Editor or Admin to upload or update the knowledge base."
             )
 
         if st.button(
-            "Got it",
+            "Continue to workspace",
             type="primary",
         ):
             st.session_state.show_onboarding = False
             st.rerun()
-
-
-# =============================================================================
-# OVERVIEW
-# =============================================================================
-
-
 def _render_home_view(user_role: str) -> None:
-    stats = _get_document_stats()
+    """Render the product-first workspace overview.
 
+    This is intentionally presentation-focused. Existing navigation, permissions,
+    document statistics, and downstream workflows remain unchanged.
+    """
+    stats = _get_document_stats()
+    role = _safe_role(user_role)
+
+    role_content = {
+        "viewer": {
+            "eyebrow": "POLICYGUARD AI",
+            "title": "HR answers, grounded in your organization’s policies.",
+            "subtitle": (
+                "PolicyGuard AI gives employees a simple way to find trusted HR "
+                "information without searching through scattered documents."
+            ),
+            "primary": "Ask a Policy Question",
+            "primary_view": "chat",
+            "secondary": "Open Dashboard",
+            "secondary_view": "dashboard",
+            "workspace": "Employee Policy Workspace",
+        },
+        "editor": {
+            "eyebrow": "POLICYGUARD AI",
+            "title": "Turn HR knowledge and internal talent data into one workspace.",
+            "subtitle": (
+                "PolicyGuard AI brings policy intelligence and talent intelligence "
+                "together so HR teams can manage knowledge, answer policy questions, "
+                "and support internal talent decisions from one controlled workspace."
+            ),
+            "primary": "Open Policy Intelligence",
+            "primary_view": "chat",
+            "secondary": "Open Talent Intelligence",
+            "secondary_view": "talent",
+            "workspace": "HR Operations Workspace",
+        },
+        "admin": {
+            "eyebrow": "POLICYGUARD AI",
+            "title": "Enterprise HR intelligence with access and governance built in.",
+            "subtitle": (
+                "A unified HR intelligence workspace for policy knowledge, internal "
+                "talent matching, user access, audit visibility, and controlled operations."
+            ),
+            "primary": "Open Policy Intelligence",
+            "primary_view": "chat",
+            "secondary": "Open Talent Intelligence",
+            "secondary_view": "talent",
+            "workspace": "HR Governance Workspace",
+        },
+    }.get(
+        role,
+        {
+            "eyebrow": "POLICYGUARD AI",
+            "title": "A controlled workspace for enterprise HR intelligence.",
+            "subtitle": (
+                "Use document-grounded HR knowledge and role-appropriate workflows "
+                "from one secure workspace."
+            ),
+            "primary": "Open Policy Intelligence",
+            "primary_view": "chat",
+            "secondary": "Open Dashboard",
+            "secondary_view": "dashboard",
+            "workspace": "HR Intelligence Workspace",
+        },
+    )
+
+    # -------------------------------------------------------------------------
+    # Product introduction
+    # -------------------------------------------------------------------------
     st.markdown(
-        """
-        <div class="hero">
-            <div class="hero-title">PolicyGuard AI</div>
-            <div class="hero-sub">
-                A secure enterprise HR knowledge platform for
-                policy discovery, document-grounded Q&A,
-                retrieval intelligence and operational governance.
+        f"""
+        <div class="pg-product-hero">
+            <div class="pg-product-hero-main">
+                <div class="pg-eyebrow">{_escape(role_content["eyebrow"])}</div>
+                <div class="pg-product-title">{_escape(role_content["title"])}</div>
+                <div class="pg-product-subtitle">{_escape(role_content["subtitle"])}</div>
+                <div class="pg-product-badges">
+                    <span>Policy Intelligence</span>
+                    <span>Talent Intelligence</span>
+                    <span>Role-aware access</span>
+                </div>
+            </div>
+            <div class="pg-product-hero-side">
+                <div class="pg-hero-mini-label">CURRENT WORKSPACE</div>
+                <div class="pg-hero-mini-title">{_escape(role_content["workspace"])}</div>
+                <div class="pg-hero-mini-copy">
+                    Capabilities and information are presented according to your
+                    authorized role.
+                </div>
             </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    action_left, action_right = st.columns([1, 1])
 
-    features = [
+    with action_left:
+        if st.button(
+            role_content["primary"],
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state.view = role_content["primary_view"]
+            st.rerun()
+
+    with action_right:
+        if st.button(
+            role_content["secondary"],
+            use_container_width=True,
+        ):
+            st.session_state.view = role_content["secondary_view"]
+            st.rerun()
+
+    # -------------------------------------------------------------------------
+    # What the product is / problem it solves
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label">WHAT IS POLICYGUARD AI?</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="pg-intro-copy">
+            <strong>PolicyGuard AI is an enterprise HR intelligence platform.</strong>
+            It connects the HR knowledge people need every day with the internal
+            talent workflows HR teams use to find and evaluate relevant skills.
+            The goal is to reduce fragmented searching, make policy information
+            easier to access, and give authorized HR users a single controlled
+            workspace for knowledge and talent intelligence.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    problem_columns = st.columns(3)
+
+    problem_cards = [
         (
-            c1,
-            "🧠",
-            "Grounded Intelligence",
-            "RAG + hybrid retrieval + reranking for evidence-oriented answers.",
+            "01",
+            "Scattered HR information",
+            "Employees and HR teams can spend time searching across policy documents, files, and internal knowledge just to find one answer.",
         ),
         (
-            c2,
-            "🛡️",
-            "Security First",
-            "RBAC, query inspection, PII-aware auditing and login protection.",
+            "02",
+            "Slow policy discovery",
+            "Natural-language questions can be matched against indexed organizational knowledge so users can get to relevant policy evidence faster.",
         ),
         (
-            c3,
-            "📚",
-            "Knowledge Base",
-            f"{stats['documents']} documents · {stats['chunks']} indexed chunks.",
-        ),
-        (
-            c4,
-            "📈",
-            "Observable",
-            "Audit events, latency, cache behavior and system health.",
+            "03",
+            "Disconnected talent workflows",
+            "Authorized HR users can bring job descriptions and internal resumes into the same workspace for structured talent matching.",
         ),
     ]
 
-    for column, icon, title, description in features:
+    for column, (number, title, description) in zip(problem_columns, problem_cards):
         with column:
             st.markdown(
                 f"""
-                <div class="pg-card">
-                    <div class="pg-card-icon">{icon}</div>
-                    <div class="pg-card-title">{_escape(title)}</div>
-                    <div class="pg-card-text">{_escape(description)}</div>
+                <div class="pg-product-card pg-problem-card">
+                    <div class="pg-number">{_escape(number)}</div>
+                    <div class="pg-product-card-title">{_escape(title)}</div>
+                    <div class="pg-product-card-text">{_escape(description)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-    st.write("")
-    st.subheader("Workspace Status")
+    # -------------------------------------------------------------------------
+    # Core capabilities
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">CORE CAPABILITIES</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="pg-section-heading">Two intelligence layers. One controlled HR workspace.</div>',
+        unsafe_allow_html=True,
+    )
 
-    m1, m2, m3, m4 = st.columns(4)
+    capability_left, capability_right = st.columns(2)
 
-    with m1:
-        st.metric("Documents", stats["documents"])
-
-    with m2:
-        st.metric("Indexed Chunks", stats["chunks"])
-
-    with m3:
-        st.metric(
-            "OCR Documents",
-            stats["ocr_documents"],
-        )
-
-    with m4:
-        st.metric(
-            "Your Role",
-            _safe_role(user_role).upper(),
-        )
-
-    st.divider()
-
-    left, right = st.columns([1.35, 1])
-
-    with left:
-        st.subheader("How the platform works")
-
+    with capability_left:
         st.markdown(
             """
-            **01 · Ingest**  
-            HR policies and reference documents are parsed and chunked.
-
-            **02 · Protect**  
-            Queries pass through security and access-control checks.
-
-            **03 · Retrieve**  
-            Semantic and lexical retrieval identify relevant evidence.
-
-            **04 · Rerank**  
-            A cross-encoder can refine the most relevant passages.
-
-            **05 · Answer**  
-            The RAG/orchestration layer produces a grounded response.
-
-            **06 · Audit**  
-            Important operations are recorded for operational governance.
-            """
+            <div class="pg-feature-card pg-feature-policy">
+                <div class="pg-feature-top">
+                    <div class="pg-feature-icon">✦</div>
+                    <div>
+                        <div class="pg-feature-kicker">01 · EMPLOYEE & HR KNOWLEDGE</div>
+                        <div class="pg-feature-title">Policy Intelligence</div>
+                    </div>
+                </div>
+                <div class="pg-feature-description">
+                    Ask questions in natural language and work with answers grounded
+                    in the organization’s indexed HR knowledge.
+                </div>
+                <div class="pg-feature-list">
+                    <div>✓ Natural-language policy questions</div>
+                    <div>✓ Document-grounded retrieval</div>
+                    <div>✓ Relevant source and page context</div>
+                    <div>✓ Persistent conversation context</div>
+                    <div>✓ Role-aware access and security controls</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-    with right:
-        st.subheader("Recommended workflow")
-
-        if stats["documents"] == 0:
-            st.warning(
-                "Your knowledge base is empty.",
-            )
-
-            if _check_permission("editor"):
-                st.write(
-                    "Upload your HR policy documents using the sidebar."
-                )
-            else:
-                st.write(
-                    "Ask an Editor or Admin to upload the required documents."
-                )
+    with capability_right:
+        if role in ("editor", "admin"):
+            talent_visibility = """
+                <div>✓ Job Description based matching</div>
+                <div>✓ Semantic and skill-fit signals</div>
+                <div>✓ Internal resume/talent pool workflow</div>
+                <div>✓ Match details and resume review</div>
+                <div>✓ Authorized HR-only access</div>
+            """
         else:
-            st.success(
-                "Knowledge base is populated.",
+            talent_visibility = """
+                <div>✓ Available to authorized HR users</div>
+                <div>✓ Matches internal profiles to Job Descriptions</div>
+                <div>✓ Uses semantic and skill-fit signals</div>
+                <div>✓ Supports internal mobility workflows</div>
+                <div>✓ Protected by role-based access controls</div>
+            """
+
+        st.markdown(
+            f"""
+            <div class="pg-feature-card pg-feature-talent">
+                <div class="pg-feature-top">
+                    <div class="pg-feature-icon">◈</div>
+                    <div>
+                        <div class="pg-feature-kicker">02 · HR & INTERNAL MOBILITY</div>
+                        <div class="pg-feature-title">Talent Intelligence</div>
+                    </div>
+                </div>
+                <div class="pg-feature-description">
+                    Help authorized HR users compare internal talent profiles with
+                    job requirements using structured matching signals.
+                </div>
+                <div class="pg-feature-list">
+                    {talent_visibility}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # -------------------------------------------------------------------------
+    # Who it is for
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">WHO IS IT FOR?</div>', unsafe_allow_html=True)
+
+    audience_columns = st.columns(3)
+    audience_cards = [
+        (
+            "Employees / Viewers",
+            "Find approved HR information",
+            "Ask policy questions, review grounded answers, and use the capabilities available to your Viewer role.",
+            "VIEWER",
+        ),
+        (
+            "HR Editors",
+            "Operate the HR intelligence workspace",
+            "Maintain the knowledge base, use Policy Intelligence, and work with Talent Intelligence for authorized internal talent workflows.",
+            "EDITOR",
+        ),
+        (
+            "HR Administrators",
+            "Govern the workspace",
+            "Manage authorized users and roles, review audit activity, and access the broader operational and governance surface.",
+            "ADMIN",
+        ),
+    ]
+
+    for column, (title, headline, description, badge) in zip(audience_columns, audience_cards):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-audience-card">
+                    <div class="pg-audience-badge">{_escape(badge)}</div>
+                    <div class="pg-audience-title">{_escape(title)}</div>
+                    <div class="pg-audience-headline">{_escape(headline)}</div>
+                    <div class="pg-product-card-text">{_escape(description)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            st.write(
-                "Open Live Chat and ask a policy question using natural language. "
-                "Your indexed knowledge base and previous conversation memory will "
-                "be restored automatically."
-            )
+    # -------------------------------------------------------------------------
+    # Product workflow, before technical architecture
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">HOW THE PRODUCT WORKS</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="pg-section-heading">From organizational knowledge to an actionable HR workflow.</div>',
+        unsafe_allow_html=True,
+    )
 
-            if _check_permission("editor"):
-                st.info(
-                    "HR users can also open Talent Intelligence to compare authorized "
-                    "bench profiles against a Job Description."
+    workflow = [
+        (
+            "01",
+            "Bring in trusted knowledge",
+            "HR documents are uploaded and prepared for use in the knowledge base.",
+        ),
+        (
+            "02",
+            "Ask or match",
+            "Employees ask policy questions while authorized HR users can also provide a Job Description for talent matching.",
+        ),
+        (
+            "03",
+            "Find relevant evidence",
+            "The platform searches the available knowledge using retrieval and matching signals.",
+        ),
+        (
+            "04",
+            "Work with the result",
+            "Users receive a focused policy answer or talent-match information appropriate to their role.",
+        ),
+        (
+            "05",
+            "Keep access controlled",
+            "Authentication, authorization, organization scoping, security checks, and audit workflows remain part of the application.",
+        ),
+    ]
+
+    for number, title, description in workflow:
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([0.65, 2.0, 5.0])
+            with c1:
+                st.markdown(
+                    f'<div class="pg-workflow-number">{_escape(number)}</div>',
+                    unsafe_allow_html=True,
                 )
+            with c2:
+                st.markdown(f"**{_escape(title)}**")
+            with c3:
+                st.caption(description)
 
+    # -------------------------------------------------------------------------
+    # Role-specific quick actions
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">YOUR WORKSPACE</div>', unsafe_allow_html=True)
+
+    if role == "viewer":
+        quick_items = [
+            ("Policy Intelligence", "Ask a question about an HR policy.", "chat"),
+            ("Dashboard", "Review your available workspace status.", "dashboard"),
+        ]
+    elif role == "editor":
+        quick_items = [
+            ("Policy Intelligence", "Ask or investigate a policy question.", "chat"),
+            ("Knowledge Base", "Manage the documents used for policy intelligence.", "documents"),
+            ("Talent Intelligence", "Match internal talent against a Job Description.", "talent"),
+        ]
+    else:
+        quick_items = [
+            ("Policy Intelligence", "Ask or investigate a policy question.", "chat"),
+            ("Talent Intelligence", "Match internal talent against a Job Description.", "talent"),
+            ("User Management", "Manage authorized users and roles.", "users"),
+        ]
+
+    quick_columns = st.columns(len(quick_items))
+    for column, (title, description, target_view) in zip(quick_columns, quick_items):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-quick-card">
+                    <div class="pg-quick-title">{_escape(title)}</div>
+                    <div class="pg-quick-text">{_escape(description)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
             if st.button(
-                "Open Live Chat",
-                type="primary",
+                f"Open {title}",
+                key=f"home_quick_{target_view}",
                 use_container_width=True,
             ):
-                st.session_state.view = "chat"
+                st.session_state.view = target_view
                 st.rerun()
 
+    # -------------------------------------------------------------------------
+    # Workspace snapshot
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">WORKSPACE SNAPSHOT</div>', unsafe_allow_html=True)
 
-# =============================================================================
-# LIVE CHAT
-# =============================================================================
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.metric("Policy documents", stats["documents"])
+    with m2:
+        st.metric("Indexed chunks", stats["chunks"])
+    with m3:
+        st.metric("OCR documents", stats["ocr_documents"])
+    with m4:
+        st.metric("Access level", role.upper())
 
+    # -------------------------------------------------------------------------
+    # Technical explanation intentionally below the product explanation
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">TECHNICAL FOUNDATION</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="pg-section-heading">How the intelligence layer works under the hood.</div>',
+        unsafe_allow_html=True,
+    )
+
+    technical_flow = [
+        (
+            "01",
+            "Ingestion & parsing",
+            "Uploaded documents are parsed and normalized so their content can become searchable knowledge.",
+        ),
+        (
+            "02",
+            "Security & authorization",
+            "Queries and workflows are processed within authentication, role-based access, organization scoping, and security controls.",
+        ),
+        (
+            "03",
+            "Hybrid retrieval",
+            "Relevant evidence can be located using semantic and lexical retrieval signals rather than relying on a single search method.",
+        ),
+        (
+            "04",
+            "Reranking",
+            "Retrieved candidates can be refined so the most relevant passages are prioritized before response generation.",
+        ),
+        (
+            "05",
+            "Orchestration & response",
+            "The orchestration layer coordinates retrieval and response generation for document-grounded Policy Intelligence workflows.",
+        ),
+        (
+            "06",
+            "Memory & audit",
+            "Conversation context and important operations can be retained through the application's memory and audit workflows.",
+        ),
+    ]
+
+    for number, title, description in technical_flow:
+        with st.container(border=True):
+            c1, c2 = st.columns([0.65, 6])
+            with c1:
+                st.markdown(
+                    f'<div class="pg-flow-number">{_escape(number)}</div>',
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                st.markdown(f"**{_escape(title)}**")
+                st.caption(description)
+
+    # -------------------------------------------------------------------------
+    # Knowledge-base state
+    # -------------------------------------------------------------------------
+    st.markdown('<div class="pg-section-label pg-section-spaced">CURRENT KNOWLEDGE STATUS</div>', unsafe_allow_html=True)
+
+    if stats["documents"] == 0:
+        st.warning("The knowledge base is currently empty.")
+        if _check_permission("editor"):
+            st.info(
+                "Start by opening Knowledge Base and uploading the HR policy "
+                "documents that should power Policy Intelligence."
+            )
+        else:
+            st.info(
+                "Ask an Editor or Admin to upload the HR policy documents "
+                "required for your organization."
+            )
+    else:
+        st.success(
+            f"Knowledge base ready · {stats['documents']} document(s) · "
+            f"{stats['chunks']} indexed chunk(s)"
+        )
+        st.caption(
+            "Open Policy Intelligence to ask a question. The application will "
+            "use the available indexed knowledge and conversation context."
+        )
+        if _check_permission("editor"):
+            st.info(
+                "For internal mobility and recruiting workflows, open Talent "
+                "Intelligence to compare authorized profiles with a Job Description."
+            )
 
 def _render_chat_view(
     username: str,
@@ -5034,112 +6656,118 @@ def _render_talent_view(
 def _render_dashboard_view(username: str) -> None:
     _require_login()
 
-    st.title("📊 Dashboard")
+    st.markdown(
+        '<div class="pg-eyebrow">WORKSPACE ANALYTICS</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Dashboard")
     st.caption(
-        "Operational visibility for the current Streamlit session and knowledge base."
+        "A focused view of knowledge coverage, runtime activity and recent HR intelligence requests."
     )
 
-    history = st.session_state.get(
-        "query_history",
-        [],
-    )
-
+    history = st.session_state.get("query_history", [])
     documents = _get_document_stats()
     components = _system_components()
 
     total_queries = len(history)
-
-    latencies = [
-        float(item.get("latency_ms", 0) or 0)
-        for item in history
-        if item.get("latency_ms") is not None
-    ]
-
-    avg_latency = (
-        sum(latencies) / len(latencies)
-        if latencies
-        else 0
-    )
-
     cache_hits = sum(
         1
         for item in history
         if item.get("cache_hit")
     )
 
+    avg_latency = (
+        sum(
+            float(item.get("latency_ms", 0) or 0)
+            for item in history
+        )
+        / total_queries
+        if total_queries
+        else 0
+    )
+
     cache_rate = (
-        cache_hits / total_queries * 100
+        (cache_hits / total_queries) * 100
         if total_queries
         else 0
     )
 
     online_count = sum(
-        1 for value in components.values()
-        if value
+        1
+        for available in components.values()
+        if available
+    )
+
+    st.markdown(
+        '<div class="pg-section-label">SESSION SIGNALS</div>',
+        unsafe_allow_html=True,
     )
 
     m1, m2, m3, m4 = st.columns(4)
 
     with m1:
-        st.metric(
-            "Session Queries",
-            total_queries,
-        )
+        st.metric("Queries", total_queries)
 
     with m2:
         st.metric(
-            "Avg Latency",
+            "Avg latency",
             f"{avg_latency:.0f} ms",
         )
 
     with m3:
         st.metric(
-            "Cache Hit Rate",
+            "Cache hit rate",
             f"{cache_rate:.1f}%",
         )
 
     with m4:
         st.metric(
-            "Healthy Components",
+            "Healthy components",
             f"{online_count}/{len(components)}",
         )
 
-    st.divider()
-
+    st.write("")
     left, right = st.columns(2)
 
     with left:
-        st.subheader("Knowledge Base")
-
-        st.metric(
-            "Documents",
-            documents["documents"],
-        )
-        st.metric(
-            "Indexed Chunks",
-            documents["chunks"],
-        )
-        st.metric(
-            "Storage",
-            f"{documents['bytes'] / (1024 * 1024):.2f} MB",
-        )
+        with st.container(border=True):
+            st.markdown(
+                '<div class="pg-section-label">KNOWLEDGE COVERAGE</div>',
+                unsafe_allow_html=True,
+            )
+            st.subheader("Knowledge Base")
+            k1, k2, k3 = st.columns(3)
+            with k1:
+                st.metric("Documents", documents["documents"])
+            with k2:
+                st.metric("Chunks", documents["chunks"])
+            with k3:
+                st.metric(
+                    "Storage",
+                    f"{documents['bytes'] / (1024 * 1024):.2f} MB",
+                )
 
     with right:
-        st.subheader("Runtime Components")
+        with st.container(border=True):
+            st.markdown(
+                '<div class="pg-section-label">RUNTIME</div>',
+                unsafe_allow_html=True,
+            )
+            st.subheader("Runtime components")
 
-        for component, available in components.items():
-            if available:
-                st.success(
-                    component,
-                )
-            else:
-                st.warning(
-                    component,
-                )
+            for component, available in components.items():
+                if available:
+                    st.success(component)
+                else:
+                    st.warning(component)
 
     if history:
-        st.divider()
-        st.subheader("Recent Queries")
+        st.write("")
+        st.markdown(
+            '<div class="pg-section-label">RECENT ACTIVITY</div>',
+            unsafe_allow_html=True,
+        )
+        st.subheader("Recent queries")
 
         df = pd.DataFrame(history[-50:])
 
@@ -5163,37 +6791,41 @@ def _render_dashboard_view(username: str) -> None:
                 hide_index=True,
             )
     else:
-        st.info(
-            "No queries have been executed in this session yet."
-        )
-
-
-# =============================================================================
-# DOCUMENTS
-# =============================================================================
-
-
+        with st.container(border=True):
+            st.info(
+                "No queries have been executed in this session yet. "
+                "Open Policy Intelligence to begin."
+            )
 def _render_documents_view(user_role: str) -> None:
     _require_login()
 
-    st.title("📚 Document Management")
-    st.caption(
-        "Inspect the documents currently registered in the PolicyGuard knowledge base."
-    )
-
     if not _check_permission("editor"):
         st.info(
-            "Viewer access does not include document management."
+            "Knowledge Base management is available to Editor and Admin roles."
         )
         return
+
+    st.markdown(
+        '<div class="pg-eyebrow">HR KNOWLEDGE OPERATIONS</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Knowledge Base")
+    st.caption(
+        "Inspect the documents currently registered in the PolicyGuard AI policy knowledge base."
+    )
 
     documents = _get_documents()
 
     if not documents:
-        st.info(
-            "No documents have been indexed yet. "
-            "Use the sidebar uploader to add the first document."
-        )
+        with st.container(border=True):
+            st.markdown("### Your knowledge base is ready for its first document")
+            st.write(
+                "Use the HR Operations uploader in the sidebar to add an approved "
+                "policy or reference document. Indexed content becomes available to Policy Intelligence."
+            )
+            st.info(
+                "Supported document processing and indexing remain unchanged."
+            )
         return
 
     df = pd.DataFrame(documents)
@@ -5243,13 +6875,6 @@ def _render_documents_view(user_role: str) -> None:
     st.caption(
         f"{len(documents)} document record(s)"
     )
-
-
-# =============================================================================
-# AUDIT LOGS
-# =============================================================================
-
-
 def _render_audit_view(user_role: str) -> None:
     _require_login()
 
@@ -5259,9 +6884,13 @@ def _render_audit_view(user_role: str) -> None:
         )
         return
 
-    st.title("🛡️ Audit Logs")
+    st.markdown(
+        '<div class="pg-eyebrow">SECURITY & GOVERNANCE</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Audit Logs")
     st.caption(
-        "Security, authentication, document and query events."
+        "Review security, authentication, document, query and privileged-operation events."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -5294,7 +6923,8 @@ def _render_audit_view(user_role: str) -> None:
     )
 
     if not logs:
-        st.info("No audit events matched the selected filters.")
+        with st.container(border=True):
+            st.info("No audit events matched the selected filters.")
         return
 
     df = pd.DataFrame(logs)
@@ -5324,13 +6954,6 @@ def _render_audit_view(user_role: str) -> None:
     st.caption(
         f"Showing {len(logs)} event(s)."
     )
-
-
-# =============================================================================
-# USER MANAGEMENT
-# =============================================================================
-
-
 def _render_users_view() -> None:
     _require_login()
 
@@ -5340,9 +6963,13 @@ def _render_users_view() -> None:
         )
         return
 
-    st.title("👥 User Management")
+    st.markdown(
+        '<div class="pg-eyebrow">ACCESS GOVERNANCE</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("User Management")
     st.caption(
-        "Manage role assignments and account activation without destroying audit history."
+        "Manage role assignments and account activation while preserving audit history."
     )
 
     if not HARDENED_AUTH_DATABASE_AVAILABLE or _auth_database is None:
@@ -5357,6 +6984,11 @@ def _render_users_view() -> None:
     if not users:
         st.info("No users found.")
         return
+
+    st.markdown(
+        '<div class="pg-section-label">ORGANIZATION ACCOUNTS</div>',
+        unsafe_allow_html=True,
+    )
 
     for user in users:
         user_id = int(user["id"])
@@ -5395,13 +7027,9 @@ def _render_users_view() -> None:
                 )
 
                 if active:
-                    st.success(
-                        active_label,
-                    )
+                    st.success(active_label)
                 else:
-                    st.error(
-                        active_label,
-                    )
+                    st.error(active_label)
 
             with c4:
                 if st.button(
@@ -5451,83 +7079,94 @@ def _render_users_view() -> None:
                         st.error(
                             "Unable to update account status."
                         )
-
-
-# =============================================================================
-# ARCHITECTURE
-# =============================================================================
-
-
 def _render_architecture_view() -> None:
-    st.title("🏗️ Architecture")
-    st.caption(
-        "PolicyGuard AI's application and intelligence pipeline."
-    )
+    _require_login()
 
-    st.subheader("System Pipeline")
+    if not _check_permission("admin"):
+        st.error(
+            "Administrator permissions are required to view architecture details."
+        )
+        return
+
+    st.markdown(
+        '<div class="pg-eyebrow">PLATFORM OVERVIEW</div>',
+        unsafe_allow_html=True,
+    )
+    st.title("Architecture")
+    st.caption(
+        "A high-level view of the application and intelligence pipeline."
+    )
 
     pipeline = [
         (
-            "1",
-            "Document Ingestion",
+            "01",
+            "Document ingestion",
             "PDF / DOCX / XLSX / TXT / Markdown → extraction → chunking.",
         ),
         (
-            "2",
+            "02",
             "Embedding",
-            "Sentence-transformer embeddings create semantic representations.",
+            "Documents are transformed into semantic representations for retrieval.",
         ),
         (
-            "3",
-            "Hybrid Retrieval",
+            "03",
+            "Hybrid retrieval",
             "FAISS semantic retrieval combines with BM25 lexical retrieval.",
         ),
         (
-            "4",
+            "04",
             "Reranking",
-            "Cross-encoder reranking improves relevance of retrieved passages.",
+            "Cross-encoder reranking improves the relevance of retrieved passages.",
         ),
         (
-            "5",
+            "05",
             "Orchestration",
-            "LangGraph/RAG pipeline coordinates query processing.",
+            "The RAG/LangGraph pipeline coordinates query processing.",
         ),
         (
-            "6",
+            "06",
             "Routing",
-            "Requests are classified into HR Policy RAG, Talent Intelligence or General HR Assistant, with the route exposed to the user.",
+            "Requests can be routed to HR Policy RAG, Talent Intelligence or the General HR Assistant.",
         ),
         (
-            "7",
-            "Persistent Memory",
-            "Conversation history is stored in SQLite and restored when Live Chat is reopened.",
+            "07",
+            "Persistent memory",
+            "Conversation history is stored and restored when Live Chat is reopened.",
         ),
         (
-            "8",
+            "08",
             "Talent Intelligence",
             "Authorized HR users can rank internal talent against a job description using semantic and skill-fit signals.",
         ),
         (
-            "9",
-            "Security & Audit",
+            "09",
+            "Security & audit",
             "Queries and privileged operations are security-checked and audited.",
         ),
     ]
 
+    st.markdown(
+        '<div class="pg-section-label">INTELLIGENCE PIPELINE</div>',
+        unsafe_allow_html=True,
+    )
+
     for number, title, description in pipeline:
         with st.container(border=True):
-            c1, c2 = st.columns([0.6, 7])
-
+            c1, c2 = st.columns([0.65, 7])
             with c1:
-                st.markdown(f"### {number}")
-
+                st.markdown(
+                    f'<div class="pg-flow-number">{_escape(number)}</div>',
+                    unsafe_allow_html=True,
+                )
             with c2:
-                st.markdown(f"**{title}**")
+                st.markdown(f"**{_escape(title)}**")
                 st.caption(description)
 
-    st.divider()
-
-    st.subheader("Runtime Configuration")
+    st.write("")
+    st.markdown(
+        '<div class="pg-section-label">RUNTIME CONFIGURATION</div>',
+        unsafe_allow_html=True,
+    )
 
     config_rows = [
         {
@@ -5570,13 +7209,6 @@ def _render_architecture_view() -> None:
         "Production deployment should keep secrets outside source control "
         "and should use durable storage for the database and vector index."
     )
-
-
-# =============================================================================
-# FOOTER
-# =============================================================================
-
-
 def _render_footer() -> None:
     username = _escape(
         st.session_state.get("username") or "User"
