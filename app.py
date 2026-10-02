@@ -5829,43 +5829,54 @@ def _render_home_view(user_role: str) -> None:
         )
 
     with capability_right:
-        if role in ("editor", "admin"):
-            talent_visibility = """
-                <div>✓ Job Description based matching</div>
-                <div>✓ Semantic and skill-fit signals</div>
-                <div>✓ Internal resume/talent pool workflow</div>
-                <div>✓ Match details and resume review</div>
-                <div>✓ Authorized HR-only access</div>
-            """
-        else:
-            talent_visibility = """
-                <div>✓ Available to authorized HR users</div>
-                <div>✓ Matches internal profiles to Job Descriptions</div>
-                <div>✓ Uses semantic and skill-fit signals</div>
-                <div>✓ Supports internal mobility workflows</div>
-                <div>✓ Protected by role-based access controls</div>
-            """
+    if role in ("editor", "admin"):
+        talent_list = """
+            <ul>
+                <li>Job Description based matching</li>
+                <li>Semantic and skill-fit signals</li>
+                <li>Internal resume/talent pool workflow</li>
+                <li>Match details and resume review</li>
+                <li>Authorized HR-only access</li>
+            </ul>
+        """
+    else:
+        talent_list = """
+            <ul>
+                <li>Available to authorized HR users</li>
+                <li>Matches internal profiles to Job Descriptions</li>
+                <li>Uses semantic and skill-fit signals</li>
+                <li>Supports internal mobility workflows</li>
+                <li>Protected by role-based access controls</li>
+            </ul>
+        """
 
-        st.markdown(
-            f"""
-            <div class="pg-feature-card pg-feature-talent">
-                <div class="pg-feature-top">
-                    <div class="pg-feature-icon">✦</div>
-                    <div>
-                        <div class="pg-feature-kicker">02 · TALENT & RECRUITMENT</div>
-                        <div class="pg-feature-title">Talent Intelligence</div>
+    st.markdown(
+        f"""
+        <div class="pg-feature-card pg-feature-talent">
+            <div class="pg-feature-top">
+                <div class="pg-feature-icon">✦</div>
+                <div>
+                    <div class="pg-feature-kicker">
+                        02 · TALENT & RECRUITMENT
+                    </div>
+                    <div class="pg-feature-title">
+                        Talent Intelligence
                     </div>
                 </div>
-                <div class="pg-feature-description">
-                    Match job descriptions with internal candidate profiles using AI-driven skill and semantic evaluation.
-                </div>
-                <div class="pg-feature-list">
-                    {talent_visibility}
-                </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+
+            <div class="pg-feature-description">
+                Match job descriptions with internal candidate profiles
+                using AI-driven skill and semantic evaluation.
+            </div>
+
+            <div class="pg-feature-list">
+                {talent_list}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # -------------------------------------------------------------------------
     # Who it is for
