@@ -5691,9 +5691,27 @@ def _render_home_view(user_role: str) -> None:
         unsafe_allow_html=True,
     )
 
-    action_left, action_right = st.columns([1, 1])
 
-    with action_left:
+    if role_content.get("secondary"):
+        action_left, action_right = st.columns([1, 1])
+
+        with action_left:
+            if st.button(
+                role_content["primary"],
+                type="primary",
+                use_container_width=True,
+            ):
+                st.session_state.view = role_content["primary_view"]
+                st.rerun()
+
+        with action_right:
+            if st.button(
+                role_content["secondary"],
+                use_container_width=True,
+            ):
+                st.session_state.view = role_content["secondary_view"]
+                st.rerun()
+    else:
         if st.button(
             role_content["primary"],
             type="primary",
@@ -5702,13 +5720,24 @@ def _render_home_view(user_role: str) -> None:
             st.session_state.view = role_content["primary_view"]
             st.rerun()
 
-    with action_right:
-        if st.button(
-            role_content["secondary"],
-            use_container_width=True,
-        ):
-            st.session_state.view = role_content["secondary_view"]
-            st.rerun()
+    # action_left, action_right = st.columns([1, 1])
+
+    # with action_left:
+    #     if st.button(
+    #         role_content["primary"],
+    #         type="primary",
+    #         use_container_width=True,
+    #     ):
+    #         st.session_state.view = role_content["primary_view"]
+    #         st.rerun()
+
+    # with action_right:
+    #     if st.button(
+    #         role_content["secondary"],
+    #         use_container_width=True,
+    #     ):
+    #         st.session_state.view = role_content["secondary_view"]
+    #         st.rerun()
 
     # -------------------------------------------------------------------------
     # What the product is / problem it solves
