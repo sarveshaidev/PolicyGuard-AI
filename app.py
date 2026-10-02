@@ -5614,8 +5614,8 @@ def _render_home_view(user_role: str) -> None:
             ),
             "primary": "Ask a Policy Question",
             "primary_view": "chat",
-            "secondary": "Open Dashboard",
-            "secondary_view": "dashboard",
+            # "secondary": "Open Dashboard",
+            # "secondary_view": "dashboard",
             "workspace": "Employee Policy Workspace",
         },
         "editor": {
