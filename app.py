@@ -5411,31 +5411,6 @@ def _render_sidebar() -> None:
     )
 
     with st.sidebar:
-        st.markdown(
-            """
-            <div class="pg-brand">
-                <div class="pg-brand-mark">P</div>
-                <div>
-                    <div class="pg-brand-name">PolicyGuard AI</div>
-                    <div class="pg-brand-sub">Enterprise HR Intelligence</div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f"""
-            <div class="pg-role-card">
-                <div class="pg-role-kicker">CURRENT WORKSPACE</div>
-                <div class="pg-role-name">{_escape(role_label)}</div>
-                <div class="pg-role-scope">{_escape(role_scope)}</div>
-                <div class="pg-role-description">{_escape(role_description)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
         _show_user_profile(username, role)
         _show_status_indicator()
 
