@@ -5789,10 +5789,13 @@ def _render_home_view(user_role: str) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-
     # -------------------------------------------------------------------------
     # Core capabilities
     # -------------------------------------------------------------------------
+    def _html(markup: str) -> str:
+        """Remove indentation/blank lines so Markdown never treats HTML as a code block."""
+        return "".join(line.strip() for line in markup.splitlines() if line.strip())
+
     st.markdown('<div class="pg-section-label pg-section-spaced">CORE CAPABILITIES</div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="pg-section-heading">Two intelligence layers. One controlled HR workspace.</div>',
@@ -5802,13 +5805,22 @@ def _render_home_view(user_role: str) -> None:
     capability_left, capability_right = st.columns(2)
 
     with capability_left:
+        policy_items = [
+            "Natural-language policy questions",
+            "Document-grounded retrieval",
+            "Relevant source and page context",
+            "Persistent conversation context",
+            "Role-aware access and security controls",
+        ]
+        policy_list = "".join(f"<div>✓ {item}</div>" for item in policy_items)
+
         st.markdown(
-            """
+            _html(f"""
             <div class="pg-feature-card pg-feature-policy">
                 <div class="pg-feature-top">
                     <div class="pg-feature-icon">✦</div>
                     <div>
-                        <div class="pg-feature-kicker">01 · EMPLOYEE & HR KNOWLEDGE</div>
+                        <div class="pg-feature-kicker">01 · EMPLOYEE &amp; HR KNOWLEDGE</div>
                         <div class="pg-feature-title">Policy Intelligence</div>
                     </div>
                 </div>
@@ -5816,68 +5828,51 @@ def _render_home_view(user_role: str) -> None:
                     Ask questions in natural language and work with answers grounded
                     in the organization’s indexed HR knowledge.
                 </div>
-                <div class="pg-feature-list">
-                    <div>✓ Natural-language policy questions</div>
-                    <div>✓ Document-grounded retrieval</div>
-                    <div>✓ Relevant source and page context</div>
-                    <div>✓ Persistent conversation context</div>
-                    <div>✓ Role-aware access and security controls</div>
-                </div>
+                <div class="pg-feature-list">{policy_list}</div>
             </div>
-            """,
+            """),
             unsafe_allow_html=True,
         )
 
     with capability_right:
         if role in ("editor", "admin"):
-            talent_list = """
-                <ul>
-                    <li>Job Description based matching</li>
-                    <li>Semantic and skill-fit signals</li>
-                    <li>Internal resume/talent pool workflow</li>
-                    <li>Match details and resume review</li>
-                    <li>Authorized HR-only access</li>
-                </ul>
-            """
+            talent_items = [
+                "Job Description based matching",
+                "Semantic and skill-fit signals",
+                "Internal resume/talent pool workflow",
+                "Match details and resume review",
+                "Authorized HR-only access",
+            ]
         else:
-            talent_list = """
-                <ul>
-                    <li>Available to authorized HR users</li>
-                    <li>Matches internal profiles to Job Descriptions</li>
-                    <li>Uses semantic and skill-fit signals</li>
-                    <li>Supports internal mobility workflows</li>
-                    <li>Protected by role-based access controls</li>
-                </ul>
-            """
+            talent_items = [
+                "Available to authorized HR users",
+                "Matches internal profiles to Job Descriptions",
+                "Uses semantic and skill-fit signals",
+                "Supports internal mobility workflows",
+                "Protected by role-based access controls",
+            ]
+
+        talent_list = "<ul>" + "".join(f"<li>{item}</li>" for item in talent_items) + "</ul>"
 
         st.markdown(
-            f"""
+            _html(f"""
             <div class="pg-feature-card pg-feature-talent">
                 <div class="pg-feature-top">
                     <div class="pg-feature-icon">✦</div>
                     <div>
-                        <div class="pg-feature-kicker">
-                            02 · TALENT & RECRUITMENT
-                        </div>
-                        <div class="pg-feature-title">
-                            Talent Intelligence
-                        </div>
+                        <div class="pg-feature-kicker">02 · TALENT &amp; RECRUITMENT</div>
+                        <div class="pg-feature-title">Talent Intelligence</div>
                     </div>
                 </div>
-
                 <div class="pg-feature-description">
                     Match job descriptions with internal candidate profiles
                     using AI-driven skill and semantic evaluation.
                 </div>
-
-                <div class="pg-feature-list">
-                    {talent_list}
-                </div>
+                <div class="pg-feature-list">{talent_list}</div>
             </div>
-            """,
+            """),
             unsafe_allow_html=True,
         )
-
     # -------------------------------------------------------------------------
     # Who it is for
     # -------------------------------------------------------------------------
