@@ -4177,6 +4177,7 @@ def _process_query(
                 user_context={
                     "username": username,
                     "user_role": user_role,
+                    "chat_session_id": int(st.session_state.get("active_chat_session_id") or 0),
                     "retrieval_strategy": {},
                     "conversation_memory": context,
                     "route": route_metadata["route"],

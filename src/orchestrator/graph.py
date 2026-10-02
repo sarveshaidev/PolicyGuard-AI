@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
+    Annotated,
     Any,
     Dict,
     List,
@@ -63,10 +64,9 @@ logger = logging.getLogger(__name__)
 # OPTIONAL LANGGRAPH IMPORT
 # =============================================================================
 
-LANGGRAPH_AVAILABLE = False
-
 try:
-    from langgraph.graph import END, StateGraph
+    from langgraph.graph import END, StateGraph, add_messages
+    from langgraph.checkpoint.memory import MemorySaver
     from langchain_core.messages import (
         AIMessage,
         HumanMessage,
@@ -74,12 +74,14 @@ try:
     )
 
     LANGGRAPH_AVAILABLE = True
-
+    
+    
 except ImportError:
     logger.warning(
         "LangGraph/langchain-core not installed; "
         "using simplified orchestration"
     )
+    MemorySaver = None  # type: ignore
 
     # Lightweight message fallback so the rest of this module remains
     # executable even when LangGraph is not installed.
@@ -699,13 +701,14 @@ class AgentState(TypedDict, total=False):
     query: Optional[str]
     final_answer: Optional[str]
 
-    messages: List[
+    messages: Annotated[
+        List[
         Union[
             HumanMessage,
             AIMessage,
             SystemMessage,
         ]
-    ]
+    ], add_messages] 
 
     next_step: Optional[str]
     router_decision: Optional[str]
@@ -858,18 +861,7 @@ def security_guard_node(
             (state.get("user_context") or {}).get("user_role", "viewer")),
             ip_address=(state.get("user_context") or {}).get("ip_address"),
             
-            # user_id=str(
-            #     (state.get("user_context") or {}).get("user_id", "graph")
-            # ),
-            # role=str(
-            #     (state.get("user_context") or {}).get("user_role", "viewer")
-            # ),
-            # organization_id=str(
-            #     (state.get("user_context") or {}).get(
-            #         "organization_id",
-            #         "default",
-            #     )
-            # ),
+
         )
 
         if not is_valid:
@@ -1420,11 +1412,15 @@ Answer only from the supplied context. If insufficient, say so clearly.
             "for assistance."
         )
 
+    messages = list(state.get("messages", []))
+    messages.append(AIMessage(content=answer))    
+        
     return {
         **state,
         "final_answer": answer,
         "next_step": "metrics",
         "thought_process": thoughts,
+        "messages": messages,
         "route_trace": list(state.get("route_trace", [])) + [{
             "stage": "generator", "route": state.get("router_decision"),
             "llm_used": llm_success, "context_chunks": len(chunks),
@@ -1730,7 +1726,8 @@ def create_policyguard_graph() -> Any:
             END,
         )
 
-        graph = workflow.compile()
+        # graph = workflow.compile()
+        graph = workflow.compile(checkpointer=_graph_checkpointer,)
 
         logger.info(
             "LangGraph workflow compiled successfully"
@@ -1880,6 +1877,12 @@ def _create_simplified_graph() -> _SimplifiedGraph:
 
 _graph_lock = threading.RLock()
 _policyguard_graph: Optional[Any] = None
+_graph_checkpointer: Optional[Any] = (
+    MemorySaver()
+    if LANGGRAPH_AVAILABLE and MemorySaver is
+not None
+    else None
+)
 
 
 def get_policyguard_graph() -> Any:
@@ -1979,7 +1982,17 @@ def process_query_via_graph(
     }
 
     graph = get_policyguard_graph()
+    
+    context_organization = str(context.get("organization_id", "default") if context else "default")
+    context_username = str(context.get("username", "graph") if context else "graph")
+    chat_session_id = str(context.get("chat_session_id", 0) if context else 0)
 
+    thread_id = (
+        
+        f"{context_organization}:"
+        f"{context_username}:"
+        f"{chat_session_id}"
+    )
     try:
         final_state: Optional[
             Dict[str, Any]
@@ -1989,6 +2002,9 @@ def process_query_via_graph(
         # simplified fallback.
         for event in graph.stream(
             inputs,
+            config={
+                "configurable": {"thread_id": thread_id}
+            },
             stream_mode="values",
         ):
             if isinstance(
