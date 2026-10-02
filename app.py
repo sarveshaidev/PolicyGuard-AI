@@ -5844,23 +5844,20 @@ def _render_home_view(user_role: str) -> None:
                 <div>✓ Uses semantic and skill-fit signals</div>
                 <div>✓ Supports internal mobility workflows</div>
                 <div>✓ Protected by role-based access controls</div>
-            """,
-            unsafe_allow_html=True,
-            
+            """
 
         st.markdown(
             f"""
             <div class="pg-feature-card pg-feature-talent">
                 <div class="pg-feature-top">
-                    <div class="pg-feature-icon">◈</div>
+                    <div class="pg-feature-icon">✦</div>
                     <div>
-                        <div class="pg-feature-kicker">02 · HR & INTERNAL MOBILITY</div>
+                        <div class="pg-feature-kicker">02 · TALENT & RECRUITMENT</div>
                         <div class="pg-feature-title">Talent Intelligence</div>
                     </div>
                 </div>
                 <div class="pg-feature-description">
-                    Help authorized HR users compare internal talent profiles with
-                    job requirements using structured matching signals.
+                    Match job descriptions with internal candidate profiles using AI-driven skill and semantic evaluation.
                 </div>
                 <div class="pg-feature-list">
                     {talent_visibility}
