@@ -5483,6 +5483,26 @@ def _render_sidebar() -> None:
 
         with st.expander("System health", expanded=False):
             components = _system_components()
+            if role == "viewer":
+                viewer_components = {
+                    "Database",
+                    "Security Guard",
+                    "Embedder",
+                    "Vector Store",
+                    "Hybrid Search",
+                    "Reranker",
+                    "RAG Engine",
+                    "LangGraph",
+                    "Parser",
+                    "Semantic Cache",
+                    "Memory",
+                    "Persistent Memory",
+                }
+                components = {
+                    name: available
+                    for name, available in components.items()
+                    if name in viewer_components
+                }
 
             for name, available in components.items():
                 if available:
@@ -5505,17 +5525,20 @@ def _render_sidebar() -> None:
                 st.markdown(
                     """
                     - Policy Intelligence
-                    - Session dashboard
-                    - Approved knowledge access
+                    - Approved HR policy access
+                    - Request Editor access from an Administrator
                     """
                 )
+
+                _render_viewer_access_request()
+
             elif role == "editor":
                 st.markdown(
                     """
                     - Policy Intelligence
                     - Knowledge Base management
                     - Talent Intelligence
-                    - Session dashboard
+                    - Dashboard
                     """
                 )
             else:
@@ -5540,6 +5563,84 @@ def _render_sidebar() -> None:
             use_container_width=True,
         ):
             _logout()
+
+def _render_viewer_access_request() -> None:
+    """Render a tenant-scoped Viewer -> Editor access request workflow."""
+    if not HARDENED_AUTH_DATABASE_AVAILABLE or _auth_database is None:
+        st.caption("Access requests are temporarily unavailable.")
+        return
+
+    username = _safe_username(st.session_state.get("username", ""))
+    organization_id = _current_organization_id()
+
+    try:
+        with closing(_db_connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT id, role, is_active
+                FROM users
+                WHERE username = ?
+                  AND organization_id = ?
+                LIMIT 1
+                """,
+                (username, organization_id),
+            ).fetchone()
+
+        if not row or not bool(row["is_active"]):
+            st.caption("Your account is not eligible to request elevated access.")
+            return
+
+        pending = _auth_database.get_pending_access_requests(
+            organization_id=organization_id
+        )
+        own_pending = next(
+            (item for item in pending if item.get("username") == username),
+            None,
+        )
+
+        if own_pending:
+            st.info(
+                "Your Editor access request is pending Administrator review."
+            )
+            return
+
+        with st.expander("Request Editor access", expanded=False):
+            st.caption(
+                "Explain why Editor access is required. An Administrator in "
+                "your organization will review the request."
+            )
+            reason = st.text_area(
+                "Reason",
+                placeholder="Example: I need to maintain approved HR policy documents and support HR operations.",
+                max_chars=500,
+                key="viewer_editor_access_reason",
+            )
+
+            if st.button(
+                "Submit access request",
+                type="primary",
+                use_container_width=True,
+                key="submit_viewer_editor_request",
+            ):
+                success, message = _auth_database.create_access_request(
+                    int(row["id"]),
+                    "viewer",
+                    "editor",
+                    _clean_text(reason, 500),
+                )
+                if success:
+                    st.success(
+                        "Request submitted. An Administrator will review it."
+                    )
+                    time.sleep(0.2)
+                    st.rerun()
+                else:
+                    st.error(message)
+    except Exception:
+        logger.exception("Viewer access-request UI failed")
+        st.error("Unable to load the access-request workflow safely.")
+
+
 def _show_onboarding() -> None:
     if not st.session_state.get("show_onboarding"):
         return
@@ -5595,6 +5696,72 @@ def _show_onboarding() -> None:
         ):
             st.session_state.show_onboarding = False
             st.rerun()
+def _render_viewer_home_view() -> None:
+    """Render a Viewer-only product overview without exposing HR-only features."""
+    st.markdown(
+        """
+        <div class="pg-product-hero">
+            <div class="pg-product-hero-main">
+                <div class="pg-eyebrow">POLICYGUARD AI</div>
+                <div class="pg-product-title">Trusted HR answers, grounded in approved policy information.</div>
+                <div class="pg-product-subtitle">Ask natural-language questions about HR policies and receive focused, document-grounded guidance with security and role-aware controls.</div>
+                <div class="pg-product-badges">
+                    <span>Policy Intelligence</span>
+                    <span>Grounded answers</span>
+                    <span>Role-aware access</span>
+                </div>
+            </div>
+            <div class="pg-product-hero-side">
+                <div class="pg-hero-mini-label">CURRENT WORKSPACE</div>
+                <div class="pg-hero-mini-title">Employee Policy Workspace</div>
+                <div class="pg-hero-mini-copy">Your workspace shows only the capabilities available to your Viewer role.</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.button("Ask a Policy Question", type="primary", use_container_width=True):
+        st.session_state.view = "chat"
+        st.rerun()
+
+    st.markdown(
+        '<div class="pg-section-label pg-section-spaced">YOUR POLICY INTELLIGENCE WORKSPACE</div>',
+        unsafe_allow_html=True,
+    )
+    cards = [
+        ("01", "Ask in natural language", "Ask about workplace conduct, attendance, leave, benefits, confidentiality, security, or other HR policy topics."),
+        ("02", "Get grounded answers", "Answers are generated from the approved policy information available to your organization, with source context when available."),
+        ("03", "Stay protected", "Security validation, prompt-injection handling, tenant scoping, and final-response checks run before an answer is shown."),
+    ]
+    columns = st.columns(3)
+    for column, (number, title, description) in zip(columns, cards):
+        with column:
+            st.markdown(
+                f"""
+                <div class="pg-product-card pg-problem-card">
+                    <div class="pg-number">{_escape(number)}</div>
+                    <div class="pg-product-card-title">{_escape(title)}</div>
+                    <div class="pg-product-card-text">{_escape(description)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown(
+        '<div class="pg-section-label pg-section-spaced">HOW YOUR POLICY ASSISTANT WORKS</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="pg-intro-copy">
+            Your question is validated by the security layer, matched against the available HR policy knowledge, and then answered using controlled retrieval and response validation. If the available policy information does not establish an answer, PolicyGuard AI is designed to say so rather than invent a rule.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _render_home_view(user_role: str) -> None:
     """Render the product-first workspace overview.
 
@@ -5603,6 +5770,10 @@ def _render_home_view(user_role: str) -> None:
     """
     stats = _get_document_stats()
     role = _safe_role(user_role)
+
+    if role == "viewer":
+        _render_viewer_home_view()
+        return
 
     role_content = {
         "viewer": {
@@ -6987,6 +7158,69 @@ def _render_users_view() -> None:
             "User-management operations are disabled for safety."
         )
         return
+
+    pending_requests = _auth_database.get_pending_access_requests(
+        organization_id=_current_organization_id()
+    )
+
+    st.markdown(
+        '<div class="pg-section-label">ACCESS REQUESTS</div>',
+        unsafe_allow_html=True,
+    )
+
+    if pending_requests:
+        st.caption(f"{len(pending_requests)} pending request(s) require review.")
+        for request in pending_requests:
+            request_id = int(request["id"])
+            requester = _escape(request.get("username", "Unknown user"))
+            from_role = _escape(request.get("from_role", "viewer"))
+            to_role = _escape(request.get("to_role", "editor"))
+            reason = _escape(request.get("reason", "No reason provided"))
+            created_at = _escape(request.get("created_at", "—"))
+
+            with st.container(border=True):
+                st.markdown(
+                    f"**{requester}** · {from_role.title()} → {to_role.title()}"
+                )
+                st.caption(f"Submitted: {created_at}")
+                st.write(reason)
+                r1, r2 = st.columns(2)
+                with r1:
+                    if st.button(
+                        "Approve",
+                        key=f"access_approve_{request_id}",
+                        use_container_width=True,
+                    ):
+                        success, message = _auth_database.approve_access_request(
+                            request_id,
+                            st.session_state.username,
+                            True,
+                        )
+                        if success:
+                            st.success(message)
+                            time.sleep(0.2)
+                            st.rerun()
+                        else:
+                            st.error(message)
+                with r2:
+                    if st.button(
+                        "Reject",
+                        key=f"access_reject_{request_id}",
+                        use_container_width=True,
+                    ):
+                        success, message = _auth_database.approve_access_request(
+                            request_id,
+                            st.session_state.username,
+                            False,
+                        )
+                        if success:
+                            st.success(message)
+                            time.sleep(0.2)
+                            st.rerun()
+                        else:
+                            st.error(message)
+    else:
+        st.info("No pending access requests.")
 
     users = _get_all_users()
 
