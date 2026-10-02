@@ -5844,7 +5844,9 @@ def _render_home_view(user_role: str) -> None:
                 <div>✓ Uses semantic and skill-fit signals</div>
                 <div>✓ Supports internal mobility workflows</div>
                 <div>✓ Protected by role-based access controls</div>
-            """
+            """,
+            unsafe_allow_html=True,
+            
 
         st.markdown(
             f"""
