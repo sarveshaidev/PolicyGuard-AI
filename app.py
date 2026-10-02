@@ -5429,10 +5429,9 @@ def _render_sidebar() -> None:
                 [
                     ("◎  Knowledge Base", "documents"),
                     ("◈  Talent Intelligence", "talent"),
+                    ("▦  Dashboard", "dashboard"),
                 ]
             )
-
-        navigation.append(("▦  Dashboard", "dashboard"))
 
         if _check_permission("admin"):
             navigation.extend(
@@ -5442,7 +5441,7 @@ def _render_sidebar() -> None:
                     ("♙  User Management", "users"),
                 ]
             )
-
+            
         labels = [label for label, _ in navigation]
         current_view = st.session_state.get("view", "home")
 
