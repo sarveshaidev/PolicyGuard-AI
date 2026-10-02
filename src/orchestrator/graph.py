@@ -66,6 +66,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from langgraph.graph import END, StateGraph, add_messages
+    from langgraph.types import Command, interrupt
     from langgraph.checkpoint.memory import MemorySaver
     from langchain_core.messages import (
         AIMessage,
@@ -712,6 +713,8 @@ class AgentState(TypedDict, total=False):
 
     next_step: Optional[str]
     router_decision: Optional[str]
+    human_approval_required: bool
+    human_approval_granted: bool
 
     thought_process: List[str]
     sub_agent_actions: List[
@@ -1651,6 +1654,314 @@ def metrics_collector_node(
 
 
 # =============================================================================
+# AGENT HOOKS
+# =============================================================================
+
+def human_approval_node(
+    state: AgentState,
+) -> AgentState:
+    """
+    Pause the workflow for explicit human approval.
+
+    Normal queries continue without interruption. HITL is activated only
+    when the state contains `human_approval_required=True`.
+    """
+
+    if not state.get(
+        "human_approval_required",
+        True,
+    ):
+        return state
+
+    approval = interrupt(
+        {
+            "type": "human_approval",
+            "message": (
+                "Human approval is required before continuing this workflow."
+            ),
+            "query": state.get(
+                "query",
+                "",
+            ),
+            "route": state.get(
+                "router_decision",
+                "",
+            ),
+        }
+    )
+
+    approved = (
+        approval is True
+        or (
+            isinstance(approval, dict)
+            and bool(
+                approval.get(
+                    "approved",
+                    False,
+                )
+            )
+        )
+    )
+
+    thoughts = list(
+        state.get(
+            "thought_process",
+            [],
+        )
+    )
+
+    thoughts = _append_thought(
+        thoughts,
+        (
+            "Human approval granted"
+            if approved
+            else "Human approval denied"
+        ),
+    )
+
+    route_trace = list(
+        state.get(
+            "route_trace",
+            [],
+        )
+    )
+
+    route_trace.append(
+        {
+            "stage": "human_approval",
+            "approved": approved,
+            "timestamp": _utc_now_iso(),
+        }
+    )
+
+    return {
+        **state,
+        "human_approval_required": False,
+        "human_approval_granted": approved,
+        "thought_process": thoughts,
+        "route_trace": route_trace,
+        "next_step": (
+            "security"
+            if approved
+            else "end"
+        ),
+    }
+
+def after_agent_hook(
+    state: AgentState,
+) -> AgentState:
+    """
+    Run post-agent response validation and attach execution metadata.
+
+    Response validation is intentionally observational at this stage.
+    Any future response redaction or blocking policy should be applied
+    explicitly after this validation boundary.
+    """
+    answer = state.get("final_answer") or ""
+
+    pii_detected = False
+    pii_types: List[str] = []
+
+    try:
+        from src.security.guard_model import get_security_guard
+
+        guard = get_security_guard()
+
+        if answer:
+            pii_detected, pii_types = guard.detect_pii(
+                answer
+            )
+    except Exception as error:
+        logger.warning(
+            "After-agent PII validation failed: %s",
+            error,
+        )
+
+    route_trace = list(
+        state.get("route_trace", [])
+    )
+
+    route_trace.append(
+        {
+            "stage": "after_agent_hook",
+            "answer_present": bool(answer),
+            "pii_detected": bool(pii_detected),
+            "pii_types": list(pii_types),
+            "timestamp": _utc_now_iso(),
+        }
+    )
+
+    thoughts = list(
+        state.get("thought_process", [])
+    )
+
+    thoughts = _append_thought(
+        thoughts,
+        (
+            "After-agent hook completed"
+            + (
+                " with PII detected"
+                if pii_detected
+                else ""
+            )
+        ),
+    )
+
+    return {
+        **state,
+        "thought_process": thoughts,
+        "route_trace": route_trace,
+    }
+
+def final_response_validation(
+    state: AgentState,
+) -> AgentState:
+    """Validate and sanitize the final response before returning it."""
+
+    answer = str(
+        state.get(
+            "final_answer",
+            "",
+        )
+        or ""
+    )
+
+    validation_errors: List[str] = []
+    pii_detected = False
+    pii_types: List[str] = []
+
+    try:
+        from src.security.guard_model import get_security_guard
+
+        guard = get_security_guard()
+
+        if answer:
+            pii_detected, pii_types = guard.detect_pii(
+                answer
+            )
+
+            if pii_detected:
+                answer = guard.redact_pii(
+                    answer
+                )
+                validation_errors.append(
+                    "PII detected and redacted from final response"
+                )
+
+    except Exception as error:
+        logger.warning(
+            "Final response validation failed: %s",
+            error,
+        )
+        validation_errors.append(
+            "Final response validation unavailable"
+        )
+
+    if not answer.strip():
+        validation_errors.append(
+            "Final response is empty"
+        )
+
+    is_valid = not validation_errors
+
+    route_trace = list(
+        state.get(
+            "route_trace",
+            [],
+        )
+    )
+
+    route_trace.append(
+        {
+            "stage": "final_response_validation",
+            "valid": is_valid,
+            "pii_detected": bool(pii_detected),
+            "pii_types": list(pii_types),
+            "errors": list(validation_errors),
+            "answer_length": len(answer),
+            "timestamp": _utc_now_iso(),
+        }
+    )
+
+    thoughts = list(
+        state.get(
+            "thought_process",
+            [],
+        )
+    )
+
+    thoughts = _append_thought(
+        thoughts,
+        (
+            "Final response validation completed"
+            + (
+                " with PII redaction"
+                if pii_detected
+                else ""
+            )
+        ),
+    )
+
+    return {
+        **state,
+        "final_answer": answer,
+        "final_response_valid": is_valid,
+        "final_response_errors": validation_errors,
+        "thought_process": thoughts,
+        "route_trace": route_trace,
+    }
+
+def before_agent_hook(
+    state: AgentState,
+) -> AgentState:
+    """
+    Run pre-agent orchestration checks and attach execution metadata.
+
+    Security threat/PII validation remains centralized in the existing
+    security_guard_node. This hook provides a dedicated lifecycle boundary
+    without duplicating security logic.
+    """
+    context = state.get("user_context")
+    if not isinstance(context, dict):
+        context = {}
+
+    organization_id = context.get("organization_id")
+    username = context.get("username")
+
+    route_trace = list(
+        state.get("route_trace", [])
+    )
+
+    route_trace.append(
+        {
+            "stage": "before_agent_hook",
+            "organization_scoped": bool(
+                organization_id
+            ),
+            "user_present": bool(
+                username
+            ),
+            "timestamp": _utc_now_iso(),
+        }
+    )
+
+    thoughts = list(
+        state.get("thought_process", [])
+    )
+
+    thoughts = _append_thought(
+        thoughts,
+        "Before-agent hook completed",
+    )
+
+    return {
+        **state,
+        "thought_process": thoughts,
+        "route_trace": route_trace,
+    }
+
+
+# =============================================================================
 # LANGGRAPH WORKFLOW
 # =============================================================================
 
@@ -1663,6 +1974,20 @@ def create_policyguard_graph() -> Any:
     try:
         workflow = StateGraph(
             AgentState
+        )
+
+        # =========================================================================
+        # NODES
+        # =========================================================================
+
+        workflow.add_node(
+            "before_agent",
+            before_agent_hook,
+        )
+
+        workflow.add_node(
+            "human_approval",
+            human_approval_node,
         )
 
         workflow.add_node(
@@ -1690,9 +2015,45 @@ def create_policyguard_graph() -> Any:
             metrics_collector_node,
         )
 
-        workflow.set_entry_point(
-            "security"
+        workflow.add_node(
+            "after_agent",
+            after_agent_hook,
         )
+
+        workflow.add_node(
+            "final_validation",
+            final_response_validation,
+        )
+
+        # =========================================================================
+        # ENTRY POINT
+        # =========================================================================
+
+        workflow.set_entry_point(
+            "before_agent",
+        )
+
+        # =========================================================================
+        # BEFORE-AGENT → HUMAN APPROVAL
+        # =========================================================================
+
+        workflow.add_edge(
+            "before_agent",
+            "human_approval",
+        )
+
+        # =========================================================================
+        # HUMAN APPROVAL → SECURITY
+        # =========================================================================
+
+        workflow.add_edge(
+            "human_approval",
+            "security",
+        )
+
+        # =========================================================================
+        # SECURITY → ROUTER / END
+        # =========================================================================
 
         workflow.add_conditional_edges(
             "security",
@@ -1706,28 +2067,67 @@ def create_policyguard_graph() -> Any:
             },
         )
 
+        # =========================================================================
+        # ROUTER → RETRIEVER
+        # =========================================================================
+
         workflow.add_edge(
             "router",
             "retriever",
         )
 
+        # =========================================================================
+        # RETRIEVER → GENERATOR
+        # =========================================================================
+
         workflow.add_edge(
             "retriever",
             "generator",
         )
 
+        # =========================================================================
+        # GENERATOR → METRICS
+        # =========================================================================
+
         workflow.add_edge(
             "generator",
             "metrics",
         )
 
+        # =========================================================================
+        # METRICS → AFTER-AGENT
+        # =========================================================================
+
         workflow.add_edge(
             "metrics",
+            "after_agent",
+        )
+
+        # =========================================================================
+        # AFTER-AGENT → FINAL VALIDATION
+        # =========================================================================
+
+        workflow.add_edge(
+            "after_agent",
+            "final_validation",
+        )
+
+        # =========================================================================
+        # FINAL VALIDATION → END
+        # =========================================================================
+
+        workflow.add_edge(
+            "final_validation",
             END,
         )
 
-        # graph = workflow.compile()
-        graph = workflow.compile(checkpointer=_graph_checkpointer,)
+        # =========================================================================
+        # COMPILE WITH THREAD CHECKPOINTING
+        # =========================================================================
+
+        graph = workflow.compile(
+            checkpointer=_graph_checkpointer,
+        )
 
         logger.info(
             "LangGraph workflow compiled successfully"
@@ -1736,14 +2136,16 @@ def create_policyguard_graph() -> Any:
         return graph
 
     except Exception as error:
-        logger.error(
+        logger.exception(
             "LangGraph compilation failed: %s",
             error,
-            exc_info=True,
+        )
+
+        logger.warning(
+            "Using simplified PolicyGuard orchestration"
         )
 
         return _create_simplified_graph()
-
 
 # =============================================================================
 # SIMPLIFIED GRAPH FALLBACK
