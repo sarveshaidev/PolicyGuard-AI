@@ -1411,12 +1411,16 @@ except Exception as exc:
 
 # Graph
 try:
-    from src.orchestrator.graph import process_query_via_graph as _graph_process_query
+    from src.orchestrator.graph import (
+        process_query_via_graph as _graph_process_query,
+        resume_human_approval as _resume_human_approval,
+    )
 
     GRAPH_AVAILABLE = True
 except Exception as exc:
     GRAPH_AVAILABLE = False
     _graph_process_query = None
+    _resume_human_approval = None
     logger.warning("LangGraph orchestrator unavailable: %s", exc)
 
 
@@ -2632,6 +2636,7 @@ def _init_session_state() -> None:
         "talent_jd_text": "",
         "talent_jd_title": "",
         "talent_results": [],
+        "pending_hitl": None,
     }
 
     for key, value in defaults.items():
@@ -3846,6 +3851,9 @@ def _extract_metadata(result: Any) -> Dict[str, Any]:
         "cache_hit",
         "tokens_used",
         "cost_usd",
+        "hitl_required",
+        "hitl_request",
+        "thread_id",
     ):
         if key in result:
             metadata[key] = result[key]
@@ -4192,6 +4200,23 @@ def _process_query(
             )
             graph_metadata = _extract_metadata(result)
             metadata.update(graph_metadata)
+
+            if isinstance(result, dict) and result.get("hitl_required"):
+                metadata["hitl_required"] = True
+                metadata["hitl_request"] = result.get("hitl_request") or {}
+                metadata["thread_id"] = result.get("thread_id")
+                metadata["latency_ms"] = int((time.perf_counter() - started) * 1000)
+                _audit_log(
+                    username,
+                    "HITL_APPROVAL_REQUESTED",
+                    f"Request: {request_id}",
+                    query_preview=sanitized_query,
+                    blocked=False,
+                )
+                return (
+                    "Human approval is required before this action can continue.",
+                    metadata,
+                )
         except Exception as graph_exc:
             logger.warning(
                 "Graph processing failed; attempting RAG engine: %s",
@@ -6358,6 +6383,91 @@ def _render_chat_view(
                 if role == "assistant":
                     _render_route_trace(metadata)
 
+    pending_hitl = st.session_state.get("pending_hitl")
+    if pending_hitl:
+        request = pending_hitl.get("hitl_request") or {}
+        st.warning(
+            request.get(
+                "message",
+                "Human approval is required before this action can continue.",
+            )
+        )
+        if request.get("query"):
+            st.caption(f"Requested action: {request['query']}")
+
+        approve_col, reject_col = st.columns(2)
+        with approve_col:
+            if st.button("✅ Approve", use_container_width=True, key="hitl_approve"):
+                if _resume_human_approval is None:
+                    st.error("HITL resume is unavailable.")
+                else:
+                    with st.spinner("Resuming approved workflow…"):
+                        result = _resume_human_approval(
+                            pending_hitl.get("thread_id", ""),
+                            True,
+                        )
+                    answer = _extract_answer(result)
+                    metadata = _extract_metadata(result)
+                    metadata["hitl_approved"] = True
+                    metadata.setdefault("request_id", pending_hitl.get("request_id"))
+                    st.session_state.pending_hitl = None
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": answer,
+                        "metadata": metadata,
+                    })
+                    _persist_chat_message(
+                        username,
+                        int(st.session_state.get("active_chat_session_id") or 0),
+                        "assistant",
+                        answer,
+                        metadata,
+                    )
+                    _audit_log(
+                        username,
+                        "HITL_APPROVED",
+                        f"Request: {pending_hitl.get('request_id', '—')}",
+                        query_preview=pending_hitl.get("query", ""),
+                    )
+                    st.rerun()
+
+        with reject_col:
+            if st.button("❌ Reject", use_container_width=True, key="hitl_reject"):
+                if _resume_human_approval is None:
+                    st.error("HITL resume is unavailable.")
+                else:
+                    result = _resume_human_approval(
+                        pending_hitl.get("thread_id", ""),
+                        False,
+                    )
+                    answer = _extract_answer(result) or "Request cancelled because human approval was denied."
+                    metadata = _extract_metadata(result)
+                    metadata["hitl_rejected"] = True
+                    metadata.setdefault("request_id", pending_hitl.get("request_id"))
+                    st.session_state.pending_hitl = None
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": answer,
+                        "metadata": metadata,
+                    })
+                    _persist_chat_message(
+                        username,
+                        int(st.session_state.get("active_chat_session_id") or 0),
+                        "assistant",
+                        answer,
+                        metadata,
+                    )
+                    _audit_log(
+                        username,
+                        "HITL_REJECTED",
+                        f"Request: {pending_hitl.get('request_id', '—')}",
+                        query_preview=pending_hitl.get("query", ""),
+                        blocked=True,
+                    )
+                    st.rerun()
+
+        return
+
     query = st.chat_input(
         "Ask about an HR policy, benefit, procedure or rule…",
     )
@@ -6416,6 +6526,15 @@ def _render_chat_view(
                     "latency_ms",
                     elapsed,
                 )
+
+                if metadata.get("hitl_required"):
+                    st.session_state.pending_hitl = {
+                        "query": query,
+                        "request_id": metadata.get("request_id"),
+                        "thread_id": metadata.get("thread_id"),
+                        "hitl_request": metadata.get("hitl_request") or {},
+                    }
+                    st.rerun()
 
                 _render_professional_answer(answer)
 
